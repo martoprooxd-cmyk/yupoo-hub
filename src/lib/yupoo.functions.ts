@@ -125,3 +125,59 @@ export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
     };
   },
 );
+
+function parseAlbumImages(html: string): string[] {
+  const urls = new Set<string>();
+
+  // Yupoo album pages use <img data-origin-src|data-src|src="..."> inside .showalbum__children or .image__img
+  const imgRegex = /<img\b[^>]*\b(?:data-origin-src|data-src|data-original|src)="([^"]+)"[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = imgRegex.exec(html)) !== null) {
+    let src = m[1].trim();
+    if (!src) continue;
+    if (src.startsWith("//")) src = "https:" + src;
+    // Filter out icons, avatars, logos
+    if (!/photo\.yupoo\.com|yupoo-img|ph\.yupoo\.com/i.test(src)) continue;
+    if (/avatar|logo|icon|qrcode/i.test(src)) continue;
+    // Prefer large versions: replace _thumb or _small with _medium where possible
+    src = src.replace(/_(?:thumb|small)\.(jpe?g|png|webp)/i, "_medium.$1");
+    urls.add(src);
+  }
+
+  return Array.from(urls);
+}
+
+export const fetchAlbumImages = createServerFn({ method: "POST" })
+  .inputValidator((input: { url: string }) => {
+    if (!input?.url || typeof input.url !== "string") throw new Error("url required");
+    if (!/yupoo\.com/i.test(input.url)) throw new Error("Invalid yupoo url");
+    return input;
+  })
+  .handler(async ({ data }): Promise<{ images: string[] }> => {
+    const apiKey = process.env.FIRECRAWL_API_KEY;
+    if (!apiKey) throw new Error("FIRECRAWL_API_KEY not configured");
+
+    const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url: data.url,
+        formats: ["html"],
+        onlyMainContent: false,
+        waitFor: 2000,
+      }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Firecrawl ${res.status}: ${txt.slice(0, 160)}`);
+    }
+
+    const json = (await res.json()) as { data?: { html?: string } };
+    const html = json.data?.html ?? "";
+    const images = parseAlbumImages(html).slice(0, 30);
+    return { images };
+  });
