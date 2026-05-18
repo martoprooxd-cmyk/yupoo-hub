@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { useState, useEffect, useCallback } from "react";
 import { ExternalLink, Loader2, ImageOff } from "lucide-react";
 import {
   Dialog,
@@ -14,6 +15,7 @@ import {
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
+  type CarouselApi,
 } from "@/components/ui/carousel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +28,8 @@ type Props = {
 
 export function ProductModal({ product, onClose }: Props) {
   const fetchImages = useServerFn(fetchAlbumImages);
+  const [api, setApi] = useState<CarouselApi>();
+  const [current, setCurrent] = useState(0);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["album-images", product?.url],
@@ -34,12 +38,25 @@ export function ProductModal({ product, onClose }: Props) {
     staleTime: 60 * 60 * 1000,
   });
 
+  useEffect(() => {
+    if (!api) return;
+    setCurrent(api.selectedScrollSnap());
+    const onSelect = () => setCurrent(api.selectedScrollSnap());
+    api.on("select", onSelect);
+    return () => { api.off("select", onSelect); };
+  }, [api]);
+
   const images =
     data?.images && data.images.length > 0
       ? data.images
       : product
         ? [product.image]
         : [];
+
+  const scrollTo = useCallback(
+    (idx: number) => api?.scrollTo(idx),
+    [api]
+  );
 
   return (
     <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
@@ -63,7 +80,7 @@ export function ProductModal({ product, onClose }: Props) {
                   />
                 </div>
               ) : (
-                <Carousel className="w-full">
+                <Carousel className="w-full" setApi={setApi}>
                   <CarouselContent>
                     {images.map((src, i) => (
                       <CarouselItem key={src + i}>
@@ -87,13 +104,39 @@ export function ProductModal({ product, onClose }: Props) {
                       <CarouselPrevious className="left-3" />
                       <CarouselNext className="right-3" />
                       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-sm bg-background/80 px-2 py-1 font-mono text-[10px] uppercase tracking-wider backdrop-blur">
-                        {images.length} fotos
+                        {current + 1} / {images.length}
                       </div>
                     </>
                   )}
                 </Carousel>
               )}
             </div>
+
+            {/* Thumbnails */}
+            {images.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto border-b border-border bg-card/40 px-6 py-3 scrollbar-thin">
+                {images.map((src, i) => (
+                  <button
+                    key={src + i}
+                    type="button"
+                    onClick={() => scrollTo(i)}
+                    className={`shrink-0 overflow-hidden rounded-sm border transition ${
+                      i === current
+                        ? "border-primary ring-1 ring-primary"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    <img
+                      src={src}
+                      alt={`Miniatura ${i + 1}`}
+                      referrerPolicy="no-referrer"
+                      className="h-12 w-12 object-cover sm:h-14 sm:w-14"
+                      loading="lazy"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="border-t border-border p-6">
               <DialogHeader className="text-left">
