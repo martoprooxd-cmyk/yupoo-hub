@@ -53,6 +53,7 @@ function Index() {
   const [favs, setFavs] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const [showFavs, setShowFavs] = useState(false);
+  const [selected, setSelected] = useState<Product | null>(null);
 
   const fetchProducts = useServerFn(fetchAllProducts);
   const queryClient = useQueryClient();
