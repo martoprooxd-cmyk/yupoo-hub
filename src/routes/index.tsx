@@ -264,7 +264,11 @@ function Index() {
                 key={p.id}
                 className="group relative overflow-hidden rounded-sm border border-border bg-card transition hover:border-primary"
               >
-                <a href={p.url} target="_blank" rel="noopener noreferrer" className="block">
+                <button
+                  type="button"
+                  onClick={() => setSelected(p)}
+                  className="block w-full text-left"
+                >
                   <div className="relative aspect-[3/4] overflow-hidden bg-muted">
                     <img
                       src={p.image}
@@ -283,7 +287,7 @@ function Index() {
                       </p>
                     </div>
                   </div>
-                </a>
+                </button>
                 <button
                   onClick={() => toggleFav(p.id)}
                   aria-label="Favorito"
