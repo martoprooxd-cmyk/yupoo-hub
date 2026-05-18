@@ -1,9 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
-import { Search, ExternalLink, Heart, Moon, Sun, Copy, Check } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { Search, ExternalLink, Heart, Moon, Sun, Copy, Check, RefreshCw, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { fetchAllProducts } from "@/lib/yupoo.functions";
 import heroImg from "@/assets/hero.jpg";
 import sneakersImg from "@/assets/cat-sneakers.jpg";
 import clothesImg from "@/assets/cat-clothes.jpg";
@@ -15,7 +18,7 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "VAULT — Yupoo Catalog Hub | Sneakers, Streetwear & Jerseys" },
-      { name: "description", content: "Explora los mejores catálogos de Yupoo en un solo lugar. Zapatillas, ropa, camisetas de fútbol, ropa de invierno y accesorios. Estilo StockX." },
+      { name: "description", content: "Catálogo unificado de Yupoo. Zapatillas, ropa, camisetas de fútbol, ropa de invierno y accesorios. Productos auto-cargados." },
     ],
   }),
   component: Index,
@@ -23,7 +26,7 @@ export const Route = createFileRoute("/")({
 
 type Category = "all" | "zapatillas" | "ropa" | "futbol" | "invierno" | "accesorios";
 
-const CATEGORIES: { id: Category; label: string; image: string }[] = [
+const CATEGORIES: { id: Exclude<Category, "all">; label: string; image: string }[] = [
   { id: "zapatillas", label: "Zapatillas", image: sneakersImg },
   { id: "ropa", label: "Ropa", image: clothesImg },
   { id: "futbol", label: "Camisetas Fútbol", image: footballImg },
@@ -31,71 +34,13 @@ const CATEGORIES: { id: Category; label: string; image: string }[] = [
   { id: "accesorios", label: "Accesorios", image: accessoriesImg },
 ];
 
-type Catalog = {
-  id: string;
-  name: string;
-  url: string;
-  category: Category;
-  image: string;
-  tags: string[];
-  items: string;
-};
-
-const CATALOGS: Catalog[] = [
-  {
-    id: "pandashoesx",
-    name: "Panda Shoes",
-    url: "https://pandashoesx.x.yupoo.com/",
-    category: "zapatillas",
-    image: sneakersImg,
-    tags: ["Nike", "Jordan", "Adidas", "Yeezy"],
-    items: "1000+ modelos",
-  },
-  {
-    id: "panshirt",
-    name: "Pan Shirt",
-    url: "https://panshirt.x.yupoo.com/",
-    category: "futbol",
-    image: footballImg,
-    tags: ["Clubes", "Selecciones", "Retro"],
-    items: "Camisetas oficiales",
-  },
-  {
-    id: "pandaclothes",
-    name: "Panda Clothes",
-    url: "https://pandaclothes.x.yupoo.com/",
-    category: "ropa",
-    image: clothesImg,
-    tags: ["Hoodies", "Tees", "Cargo"],
-    items: "Streetwear premium",
-  },
-  {
-    id: "wu769809876",
-    name: "WU Collection",
-    url: "https://wu769809876.x.yupoo.com/categories",
-    category: "ropa",
-    image: clothesImg,
-    tags: ["Designer", "Tracksuits", "Denim"],
-    items: "Marca diversa",
-  },
-  {
-    id: "maoyi998",
-    name: "998 Maoyi",
-    url: "http://998maoyi.x.yupoo.com/categories",
-    category: "accesorios",
-    image: accessoriesImg,
-    tags: ["Bolsos", "Caps", "Cinturones"],
-    items: "Accesorios premium",
-  },
-  {
-    id: "winterclothes",
-    name: "Winter Clothes",
-    url: "https://winterclothes.x.yupoo.com/categories",
-    category: "invierno",
-    image: winterImg,
-    tags: ["Puffers", "Down", "North Face"],
-    items: "Colección invierno",
-  },
+const CATALOGS = [
+  { id: "pandashoesx", name: "Panda Shoes", url: "https://pandashoesx.x.yupoo.com/", category: "zapatillas" as const },
+  { id: "panshirt", name: "Pan Shirt", url: "https://panshirt.x.yupoo.com/", category: "futbol" as const },
+  { id: "pandaclothes", name: "Panda Clothes", url: "https://pandaclothes.x.yupoo.com/", category: "ropa" as const },
+  { id: "wu769809876", name: "WU Collection", url: "https://wu769809876.x.yupoo.com/categories", category: "ropa" as const },
+  { id: "maoyi998", name: "998 Maoyi", url: "http://998maoyi.x.yupoo.com/categories", category: "accesorios" as const },
+  { id: "winterclothes", name: "Winter Clothes", url: "https://winterclothes.x.yupoo.com/categories", category: "invierno" as const },
 ];
 
 const PASSWORD = "112233445566";
@@ -106,6 +51,17 @@ function Index() {
   const [dark, setDark] = useState(true);
   const [favs, setFavs] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  const [showFavs, setShowFavs] = useState(false);
+
+  const fetchProducts = useServerFn(fetchAllProducts);
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: ["yupoo-products"],
+    queryFn: () => fetchProducts(),
+    staleTime: 60 * 60 * 1000, // 1 hora
+    gcTime: 2 * 60 * 60 * 1000,
+  });
 
   useEffect(() => {
     const saved = localStorage.getItem("vault-favs");
@@ -137,18 +93,31 @@ function Index() {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["yupoo-products"] });
+  };
+
+  const products = data?.products ?? [];
+
   const filtered = useMemo(() => {
-    return CATALOGS.filter((c) => {
-      if (cat !== "all" && c.category !== cat) return false;
+    return products.filter((p) => {
+      if (showFavs && !favs.includes(p.id)) return false;
+      if (cat !== "all" && p.category !== cat) return false;
       if (!query) return true;
       const q = query.toLowerCase();
       return (
-        c.name.toLowerCase().includes(q) ||
-        c.tags.some((t) => t.toLowerCase().includes(q)) ||
-        c.category.toLowerCase().includes(q)
+        p.title.toLowerCase().includes(q) ||
+        p.catalogName.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q)
       );
     });
-  }, [query, cat]);
+  }, [products, query, cat, favs, showFavs]);
+
+  const countByCat = useMemo(() => {
+    const map: Record<string, number> = {};
+    products.forEach((p) => (map[p.category] = (map[p.category] || 0) + 1));
+    return map;
+  }, [products]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -160,13 +129,18 @@ function Index() {
             <span className="text-xl font-black tracking-tighter">VAULT</span>
           </div>
           <nav className="hidden items-center gap-6 text-sm font-medium md:flex">
+            <a href="#productos" className="text-muted-foreground transition hover:text-foreground">Productos</a>
             <a href="#catalogos" className="text-muted-foreground transition hover:text-foreground">Catálogos</a>
-            <a href="#categorias" className="text-muted-foreground transition hover:text-foreground">Categorías</a>
             <a href="#password" className="text-muted-foreground transition hover:text-foreground">Password</a>
           </nav>
-          <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Cambiar tema">
-            {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" onClick={refresh} disabled={isFetching} aria-label="Refrescar">
+              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Cambiar tema">
+              {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -174,22 +148,22 @@ function Index() {
       <section className="relative overflow-hidden border-b border-border">
         <img
           src={heroImg}
-          alt="Streetwear catalog hero"
+          alt=""
           width={1920}
           height={800}
           className="absolute inset-0 h-full w-full object-cover opacity-40"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/40 to-background" />
-        <div className="relative mx-auto max-w-7xl px-4 py-24 sm:px-6 sm:py-32">
+        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28">
           <Badge className="mb-6 border-primary/30 bg-primary/10 text-primary hover:bg-primary/20">
-            ● 6 catálogos · 5 categorías
+            ● {isLoading ? "Cargando…" : `${products.length} productos · 6 catálogos`}
           </Badge>
           <h1 className="max-w-4xl text-5xl font-black leading-[0.95] tracking-tighter sm:text-7xl lg:text-8xl">
             EL VAULT DE LOS<br />
             <span className="text-primary" style={{ textShadow: "var(--glow)" }}>MEJORES YUPOOS</span>
           </h1>
           <p className="mt-6 max-w-xl text-base text-muted-foreground sm:text-lg">
-            Zapatillas, streetwear, camisetas de fútbol e invierno. Todos los catálogos curados en una sola interfaz.
+            Productos auto-cargados de 6 catálogos Yupoo. Búscalos, fíltralos, guarda favoritos y abre el álbum original con un clic.
           </p>
 
           {/* Search */}
@@ -199,7 +173,7 @@ function Index() {
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar catálogo, marca o categoría…"
+                placeholder="Buscar producto, marca, catálogo…"
                 className="h-14 border-border bg-card/80 pl-12 text-base backdrop-blur focus-visible:ring-primary"
               />
             </div>
@@ -207,146 +181,167 @@ function Index() {
         </div>
       </section>
 
-      {/* Categories */}
-      <section id="categorias" className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
-        <div className="mb-8 flex items-end justify-between">
-          <div>
-            <p className="text-xs font-mono uppercase tracking-widest text-primary">01 / Categorías</p>
-            <h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Explora por tipo</h2>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setCat("all")}
-            className={`rounded-sm border px-4 py-2 text-sm font-semibold uppercase tracking-wider transition ${
-              cat === "all"
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-card hover:border-primary/50"
-            }`}
-          >
-            Todo
-          </button>
-          {CATEGORIES.map((c) => (
+      {/* Categories filter */}
+      <section className="border-b border-border bg-card/30">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+          <div className="flex flex-wrap gap-2">
             <button
-              key={c.id}
-              onClick={() => setCat(c.id)}
-              className={`rounded-sm border px-4 py-2 text-sm font-semibold uppercase tracking-wider transition ${
-                cat === c.id
+              onClick={() => { setCat("all"); setShowFavs(false); }}
+              className={`rounded-sm border px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+                cat === "all" && !showFavs
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border bg-card hover:border-primary/50"
               }`}
             >
-              {c.label}
+              Todo {products.length > 0 && <span className="ml-1 opacity-60">{products.length}</span>}
             </button>
-          ))}
-        </div>
-
-        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {CATEGORIES.map((c) => (
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => { setCat(c.id); setShowFavs(false); }}
+                className={`rounded-sm border px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+                  cat === c.id && !showFavs
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card hover:border-primary/50"
+                }`}
+              >
+                {c.label} {countByCat[c.id] > 0 && <span className="ml-1 opacity-60">{countByCat[c.id]}</span>}
+              </button>
+            ))}
             <button
-              key={c.id}
-              onClick={() => {
-                setCat(c.id);
-                document.getElementById("catalogos")?.scrollIntoView({ behavior: "smooth" });
-              }}
-              className="group relative aspect-square overflow-hidden rounded-sm border border-border bg-card transition hover:border-primary"
+              onClick={() => setShowFavs((v) => !v)}
+              className={`ml-auto flex items-center gap-1.5 rounded-sm border px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+                showFavs
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card hover:border-primary/50"
+              }`}
             >
-              <img
-                src={c.image}
-                alt={c.label}
-                loading="lazy"
-                className="absolute inset-0 h-full w-full object-cover opacity-60 transition group-hover:scale-110 group-hover:opacity-90"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
-              <div className="absolute bottom-0 left-0 right-0 p-3 text-left">
-                <p className="text-sm font-bold uppercase tracking-tight sm:text-base">{c.label}</p>
-              </div>
+              <Heart className={`h-3.5 w-3.5 ${showFavs ? "fill-current" : ""}`} />
+              Favoritos {favs.length > 0 && <span className="opacity-70">{favs.length}</span>}
             </button>
-          ))}
+          </div>
         </div>
       </section>
 
-      {/* Catalogs grid */}
-      <section id="catalogos" className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+      {/* Products grid */}
+      <section id="productos" className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
         <div className="mb-8 flex items-end justify-between">
           <div>
-            <p className="text-xs font-mono uppercase tracking-widest text-primary">02 / Catálogos</p>
+            <p className="text-xs font-mono uppercase tracking-widest text-primary">01 / Productos</p>
             <h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-              {filtered.length} {filtered.length === 1 ? "catálogo" : "catálogos"}
+              {isLoading ? "Cargando…" : `${filtered.length} ${filtered.length === 1 ? "resultado" : "resultados"}`}
             </h2>
           </div>
+          {data?.fetchedAt && (
+            <p className="hidden font-mono text-xs uppercase tracking-widest text-muted-foreground sm:block">
+              Actualizado: {new Date(data.fetchedAt).toLocaleTimeString()}
+            </p>
+          )}
         </div>
 
-        {filtered.length === 0 ? (
+        {isLoading ? (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="aspect-[3/4] animate-pulse rounded-sm border border-border bg-card" />
+            ))}
+          </div>
+        ) : error ? (
+          <div className="rounded-sm border border-destructive/40 bg-destructive/10 p-8 text-center">
+            <p className="font-bold text-destructive">Error al cargar productos</p>
+            <p className="mt-2 text-sm text-muted-foreground">{String(error)}</p>
+            <Button onClick={refresh} className="mt-4">Reintentar</Button>
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="rounded-sm border border-dashed border-border p-16 text-center text-muted-foreground">
-            No hay resultados para tu búsqueda.
+            {showFavs ? "Aún no tienes favoritos." : "No hay resultados para tu búsqueda."}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((c) => (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+            {filtered.map((p) => (
               <article
-                key={c.id}
+                key={p.id}
                 className="group relative overflow-hidden rounded-sm border border-border bg-card transition hover:border-primary"
               >
-                <div className="relative aspect-[4/3] overflow-hidden bg-muted">
-                  <img
-                    src={c.image}
-                    alt={c.name}
-                    loading="lazy"
-                    className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
-                  />
-                  <button
-                    onClick={() => toggleFav(c.id)}
-                    aria-label="Favorito"
-                    className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-background/80 backdrop-blur transition hover:bg-background"
-                  >
-                    <Heart
-                      className={`h-4 w-4 ${favs.includes(c.id) ? "fill-primary text-primary" : "text-foreground"}`}
+                <a href={p.url} target="_blank" rel="noopener noreferrer" className="block">
+                  <div className="relative aspect-[3/4] overflow-hidden bg-muted">
+                    <img
+                      src={p.image}
+                      alt={p.title}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.opacity = "0.2";
+                      }}
                     />
-                  </button>
-                  <div className="absolute left-3 top-3">
-                    <Badge variant="secondary" className="border-0 bg-background/80 text-xs font-bold uppercase backdrop-blur">
-                      {CATEGORIES.find((x) => x.id === c.category)?.label}
-                    </Badge>
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/60 to-transparent p-3">
+                      <p className="line-clamp-2 text-xs font-bold leading-tight">{p.title}</p>
+                      <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {p.catalogName}
+                      </p>
+                    </div>
                   </div>
-                </div>
-
-                <div className="p-5">
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="text-lg font-black tracking-tight">{c.name}</h3>
-                    <span className="font-mono text-xs text-muted-foreground">{c.items}</span>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {c.tags.map((t) => (
-                      <span
-                        key={t}
-                        className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-
-                  <a
-                    href={c.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-5 flex items-center justify-between rounded-sm border border-border bg-secondary px-4 py-3 text-sm font-bold uppercase tracking-wider transition hover:border-primary hover:bg-primary hover:text-primary-foreground"
-                  >
-                    Abrir álbum
-                    <ExternalLink className="h-4 w-4" />
-                  </a>
+                </a>
+                <button
+                  onClick={() => toggleFav(p.id)}
+                  aria-label="Favorito"
+                  className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-background/80 backdrop-blur transition hover:bg-background"
+                >
+                  <Heart
+                    className={`h-3.5 w-3.5 ${favs.includes(p.id) ? "fill-primary text-primary" : "text-foreground"}`}
+                  />
+                </button>
+                <div className="absolute left-2 top-2">
+                  <span className="rounded-sm bg-background/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur">
+                    {CATEGORIES.find((x) => x.id === p.category)?.label.split(" ")[0]}
+                  </span>
                 </div>
               </article>
             ))}
           </div>
         )}
+
+        {data?.errors && data.errors.length > 0 && (
+          <details className="mt-8 rounded-sm border border-border bg-card/40 p-4 text-xs text-muted-foreground">
+            <summary className="cursor-pointer font-mono uppercase tracking-widest">
+              {data.errors.length} catálogo(s) con error
+            </summary>
+            <ul className="mt-3 space-y-1">
+              {data.errors.map((e, i) => (
+                <li key={i} className="font-mono">{e}</li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </section>
+
+      {/* Catalogs */}
+      <section id="catalogos" className="border-t border-border bg-card/30">
+        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+          <p className="text-xs font-mono uppercase tracking-widest text-primary">02 / Catálogos originales</p>
+          <h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Abrir Yupoo directamente</h2>
+          <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {CATALOGS.map((c) => (
+              <a
+                key={c.id}
+                href={c.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center justify-between gap-2 rounded-sm border border-border bg-background p-4 transition hover:border-primary"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold">{c.name}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{c.category}</p>
+                </div>
+                <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-primary" />
+              </a>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* Password */}
-      <section id="password" className="border-t border-border bg-card/40">
+      <section id="password" className="border-t border-border">
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
           <div className="grid items-center gap-8 md:grid-cols-2">
             <div>
@@ -358,13 +353,13 @@ function Index() {
             </div>
             <button
               onClick={copyPass}
-              className="group flex items-center justify-between rounded-sm border border-border bg-background p-6 transition hover:border-primary"
+              className="group flex items-center justify-between rounded-sm border border-border bg-card p-6 transition hover:border-primary"
             >
               <div className="text-left">
                 <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Password</p>
                 <p className="mt-1 font-mono text-2xl font-bold tracking-wider">{PASSWORD}</p>
               </div>
-              <div className="grid h-12 w-12 place-items-center rounded-sm border border-border bg-card transition group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground">
+              <div className="grid h-12 w-12 place-items-center rounded-sm border border-border bg-background transition group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground">
                 {copied ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
               </div>
             </button>
@@ -375,7 +370,10 @@ function Index() {
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:px-6">
           <p>© {new Date().getFullYear()} VAULT — Yupoo Catalog Hub</p>
-          <p className="font-mono text-xs uppercase tracking-widest">Curated · Fast · Free</p>
+          <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest">
+            {isFetching && <Loader2 className="h-3 w-3 animate-spin" />}
+            Powered by Firecrawl
+          </p>
         </div>
       </footer>
     </div>
