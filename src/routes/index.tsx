@@ -6,7 +6,8 @@ import { Search, ExternalLink, Heart, Moon, Sun, Copy, Check, RefreshCw, Loader2
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { fetchAllProducts } from "@/lib/yupoo.functions";
+import { fetchAllProducts, type Product } from "@/lib/yupoo.functions";
+import { ProductModal } from "@/components/ProductModal";
 import heroImg from "@/assets/hero.jpg";
 import sneakersImg from "@/assets/cat-sneakers.jpg";
 import clothesImg from "@/assets/cat-clothes.jpg";
