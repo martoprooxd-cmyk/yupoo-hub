@@ -382,6 +382,8 @@ function Index() {
           </p>
         </div>
       </footer>
+
+      <ProductModal product={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }
