@@ -112,10 +112,25 @@ export function ProductModal({ product, onClose }: Props) {
               )}
             </div>
 
-            {/* Thumbnails */}
-            {images.length > 1 && (
-              <div className="flex gap-2 overflow-x-auto border-b border-border bg-card/40 px-6 py-3 scrollbar-thin">
-                {images.map((src, i) => (
+            {/* Thumbnails / status row */}
+            <div className="flex min-h-[72px] items-center gap-2 overflow-x-auto border-b border-border bg-card/40 px-6 py-3 scrollbar-thin">
+              {isLoading ? (
+                <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                  Cargando miniaturas…
+                </div>
+              ) : error ? (
+                <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-destructive">
+                  <ImageOff className="h-3 w-3" />
+                  Error al cargar el álbum
+                </div>
+              ) : data && (!data.images || data.images.length === 0) ? (
+                <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <ImageOff className="h-3 w-3" />
+                  Sin imágenes detectadas en este álbum
+                </div>
+              ) : images.length > 1 ? (
+                images.map((src, i) => (
                   <button
                     key={src + i}
                     type="button"
@@ -134,9 +149,9 @@ export function ProductModal({ product, onClose }: Props) {
                       loading="lazy"
                     />
                   </button>
-                ))}
-              </div>
-            )}
+                ))
+              ) : null}
+            </div>
 
             <div className="border-t border-border p-6">
               <DialogHeader className="text-left">
