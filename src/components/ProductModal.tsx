@@ -148,7 +148,10 @@ export function ProductModal({ product, onClose }: Props) {
             </div>
 
             {/* Thumbnails / status row */}
-            <div className="flex min-h-[72px] items-center gap-2 overflow-x-auto border-b border-border bg-card/40 px-6 py-3 scrollbar-thin">
+            <div
+              ref={thumbsRef}
+              className="flex min-h-[72px] items-center gap-2 overflow-x-auto border-b border-border bg-card/40 px-6 py-3 scrollbar-thin scroll-smooth"
+            >
               {isLoading ? (
                 <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin text-primary" />
@@ -169,6 +172,7 @@ export function ProductModal({ product, onClose }: Props) {
                   <button
                     key={src + i}
                     type="button"
+                    data-thumb-idx={i}
                     onClick={() => scrollTo(i)}
                     className={`shrink-0 overflow-hidden rounded-sm border transition ${
                       i === current
@@ -181,7 +185,8 @@ export function ProductModal({ product, onClose }: Props) {
                       alt={`Miniatura ${i + 1}`}
                       referrerPolicy="no-referrer"
                       className="h-12 w-12 object-cover sm:h-14 sm:w-14"
-                      loading="lazy"
+                      loading="eager"
+                      decoding="async"
                     />
                   </button>
                 ))
