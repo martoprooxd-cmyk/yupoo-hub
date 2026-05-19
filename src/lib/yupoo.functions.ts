@@ -126,22 +126,39 @@ export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
   },
 );
 
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&#x2F;/gi, "/")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
 function parseAlbumImages(html: string): string[] {
   const urls = new Set<string>();
 
-  // Yupoo album pages use <img data-origin-src|data-src|src="..."> inside .showalbum__children or .image__img
-  const imgRegex = /<img\b[^>]*\b(?:data-origin-src|data-src|data-original|src)="([^"]+)"[^>]*>/gi;
+  // Match every attribute on <img> that might hold the src (yupoo lazy-loads via many attrs)
+  const imgRegex = /<img\b([^>]+)>/gi;
+  const attrRegex = /\b(?:data-origin-src|data-origin|data-src|data-original|data-lazy|data-echo|src)\s*=\s*"([^"]+)"/gi;
+
   let m: RegExpExecArray | null;
   while ((m = imgRegex.exec(html)) !== null) {
-    let src = m[1].trim();
-    if (!src) continue;
-    if (src.startsWith("//")) src = "https:" + src;
-    // Filter out icons, avatars, logos
-    if (!/photo\.yupoo\.com|yupoo-img|ph\.yupoo\.com/i.test(src)) continue;
-    if (/avatar|logo|icon|qrcode/i.test(src)) continue;
-    // Prefer large versions: replace _thumb or _small with _medium where possible
-    src = src.replace(/_(?:thumb|small)\.(jpe?g|png|webp)/i, "_medium.$1");
-    urls.add(src);
+    const tag = m[1];
+    let a: RegExpExecArray | null;
+    attrRegex.lastIndex = 0;
+    while ((a = attrRegex.exec(tag)) !== null) {
+      let src = decodeEntities(a[1].trim());
+      if (!src || src.startsWith("data:")) continue;
+      if (src.startsWith("//")) src = "https:" + src;
+      // Keep only yupoo-hosted images
+      if (!/yupoo\.com/i.test(src)) continue;
+      if (/avatar|logo|qrcode|favicon|sprite/i.test(src)) continue;
+      // Upgrade thumb/small variants to medium when possible
+      src = src.replace(/_(?:thumb|small)\.(jpe?g|png|webp)/i, "_medium.$1");
+      urls.add(src);
+    }
   }
 
   return Array.from(urls);
@@ -164,7 +181,7 @@ export const fetchAlbumImages = createServerFn({ method: "POST" })
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        url: data.url,
+        url: decodeEntities(data.url),
         formats: ["html"],
         onlyMainContent: false,
         waitFor: 2000,
