@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ExternalLink, Loader2, ImageOff } from "lucide-react";
 import {
   Dialog,
@@ -38,20 +38,55 @@ export function ProductModal({ product, onClose }: Props) {
     staleTime: 60 * 60 * 1000,
   });
 
-  useEffect(() => {
-    if (!api) return;
-    setCurrent(api.selectedScrollSnap());
-    const onSelect = () => setCurrent(api.selectedScrollSnap());
-    api.on("select", onSelect);
-    return () => { api.off("select", onSelect); };
-  }, [api]);
-
   const images =
     data?.images && data.images.length > 0
       ? data.images
       : product
         ? [product.image]
         : [];
+
+  // Preload all album images as soon as they arrive — instant carousel + thumbs
+  useEffect(() => {
+    if (!data?.images?.length) return;
+    const preloaders = data.images.map((src) => {
+      const img = new Image();
+      img.referrerPolicy = "no-referrer";
+      img.src = src;
+      return img;
+    });
+    return () => {
+      preloaders.forEach((img) => {
+        img.src = "";
+      });
+    };
+  }, [data?.images]);
+
+  // Sync active thumbnail with carousel — use both "select" (snap settled)
+  // and "scroll" (in-flight) so the highlight follows the drag without delay.
+  useEffect(() => {
+    if (!api) return;
+    const sync = () => setCurrent(api.selectedScrollSnap());
+    sync();
+    api.on("select", sync);
+    api.on("reInit", sync);
+    api.on("scroll", sync);
+    return () => {
+      api.off("select", sync);
+      api.off("reInit", sync);
+      api.off("scroll", sync);
+    };
+  }, [api]);
+
+  // Auto-scroll the thumbnail strip so the active one stays visible
+  const thumbsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const strip = thumbsRef.current;
+    if (!strip) return;
+    const active = strip.querySelector<HTMLButtonElement>(
+      `button[data-thumb-idx="${current}"]`,
+    );
+    active?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [current]);
 
   const scrollTo = useCallback(
     (idx: number) => api?.scrollTo(idx),
@@ -113,7 +148,10 @@ export function ProductModal({ product, onClose }: Props) {
             </div>
 
             {/* Thumbnails / status row */}
-            <div className="flex min-h-[72px] items-center gap-2 overflow-x-auto border-b border-border bg-card/40 px-6 py-3 scrollbar-thin">
+            <div
+              ref={thumbsRef}
+              className="flex min-h-[72px] items-center gap-2 overflow-x-auto border-b border-border bg-card/40 px-6 py-3 scrollbar-thin scroll-smooth"
+            >
               {isLoading ? (
                 <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin text-primary" />
@@ -134,6 +172,7 @@ export function ProductModal({ product, onClose }: Props) {
                   <button
                     key={src + i}
                     type="button"
+                    data-thumb-idx={i}
                     onClick={() => scrollTo(i)}
                     className={`shrink-0 overflow-hidden rounded-sm border transition ${
                       i === current
@@ -146,7 +185,8 @@ export function ProductModal({ product, onClose }: Props) {
                       alt={`Miniatura ${i + 1}`}
                       referrerPolicy="no-referrer"
                       className="h-12 w-12 object-cover sm:h-14 sm:w-14"
-                      loading="lazy"
+                      loading="eager"
+                      decoding="async"
                     />
                   </button>
                 ))
