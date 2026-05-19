@@ -181,7 +181,7 @@ export const fetchAlbumImages = createServerFn({ method: "POST" })
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        url: data.url,
+        url: decodeEntities(data.url),
         formats: ["html"],
         onlyMainContent: false,
         waitFor: 2000,
