@@ -38,20 +38,55 @@ export function ProductModal({ product, onClose }: Props) {
     staleTime: 60 * 60 * 1000,
   });
 
-  useEffect(() => {
-    if (!api) return;
-    setCurrent(api.selectedScrollSnap());
-    const onSelect = () => setCurrent(api.selectedScrollSnap());
-    api.on("select", onSelect);
-    return () => { api.off("select", onSelect); };
-  }, [api]);
-
   const images =
     data?.images && data.images.length > 0
       ? data.images
       : product
         ? [product.image]
         : [];
+
+  // Preload all album images as soon as they arrive — instant carousel + thumbs
+  useEffect(() => {
+    if (!data?.images?.length) return;
+    const preloaders = data.images.map((src) => {
+      const img = new Image();
+      img.referrerPolicy = "no-referrer";
+      img.src = src;
+      return img;
+    });
+    return () => {
+      preloaders.forEach((img) => {
+        img.src = "";
+      });
+    };
+  }, [data?.images]);
+
+  // Sync active thumbnail with carousel — use both "select" (snap settled)
+  // and "scroll" (in-flight) so the highlight follows the drag without delay.
+  useEffect(() => {
+    if (!api) return;
+    const sync = () => setCurrent(api.selectedScrollSnap());
+    sync();
+    api.on("select", sync);
+    api.on("reInit", sync);
+    api.on("scroll", sync);
+    return () => {
+      api.off("select", sync);
+      api.off("reInit", sync);
+      api.off("scroll", sync);
+    };
+  }, [api]);
+
+  // Auto-scroll the thumbnail strip so the active one stays visible
+  const thumbsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const strip = thumbsRef.current;
+    if (!strip) return;
+    const active = strip.querySelector<HTMLButtonElement>(
+      `button[data-thumb-idx="${current}"]`,
+    );
+    active?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [current]);
 
   const scrollTo = useCallback(
     (idx: number) => api?.scrollTo(idx),
