@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { fetchAllProducts, type Product } from "@/lib/yupoo.functions";
+import { proxyImageUrl } from "@/lib/image-proxy";
 import { ProductModal } from "@/components/ProductModal";
 import heroImg from "@/assets/hero.jpg";
 import sneakersImg from "@/assets/cat-sneakers.jpg";
@@ -271,7 +272,7 @@ function Index() {
                 >
                   <div className="relative aspect-[3/4] overflow-hidden bg-muted">
                     <img
-                      src={p.image}
+                      src={proxyImageUrl(p.image)}
                       alt={p.title}
                       loading="lazy"
                       referrerPolicy="no-referrer"
