@@ -44,6 +44,7 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
     let image = imgMatch[1].trim();
     if (image.startsWith("//")) image = "https:" + image;
     if (image.startsWith("/")) image = base + image;
+    if (/im_photo_album|avatar|logo|qrcode|favicon|sprite|loading_icon/i.test(image)) continue;
 
     if (!title) {
       const titleMatch = inner.match(/album__main_title[^>]*>([^<]+)</i);
@@ -152,9 +153,9 @@ function parseAlbumImages(html: string): string[] {
       let src = decodeEntities(a[1].trim());
       if (!src || src.startsWith("data:")) continue;
       if (src.startsWith("//")) src = "https:" + src;
-      // Keep only yupoo-hosted images
-      if (!/yupoo\.com/i.test(src)) continue;
-      if (/avatar|logo|qrcode|favicon|sprite/i.test(src)) continue;
+      // Keep only actual album photos, not Yupoo UI/icons/social assets
+      if (!/^https?:\/\/photo\.yupoo\.com\//i.test(src)) continue;
+      if (/im_photo_album|avatar|logo|qrcode|favicon|sprite|loading_icon/i.test(src)) continue;
       // Upgrade thumb/small variants to medium when possible
       src = src.replace(/_(?:thumb|small)\.(jpe?g|png|webp)/i, "_medium.$1");
       urls.add(src);

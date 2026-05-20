@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { fetchAlbumImages, type Product } from "@/lib/yupoo.functions";
+import { proxyImageUrl } from "@/lib/image-proxy";
 
 type Props = {
   product: Product | null;
@@ -51,7 +52,7 @@ export function ProductModal({ product, onClose }: Props) {
     const preloaders = data.images.map((src) => {
       const img = new Image();
       img.referrerPolicy = "no-referrer";
-      img.src = src;
+      img.src = proxyImageUrl(src);
       return img;
     });
     return () => {
@@ -108,7 +109,7 @@ export function ProductModal({ product, onClose }: Props) {
                   <ImageOff className="h-8 w-8" />
                   <p className="text-xs">No se pudieron cargar las imágenes</p>
                   <img
-                    src={product.image}
+                    src={proxyImageUrl(product.image)}
                     alt={product.title}
                     referrerPolicy="no-referrer"
                     className="mt-2 max-h-64 rounded-sm"
@@ -121,7 +122,7 @@ export function ProductModal({ product, onClose }: Props) {
                       <CarouselItem key={src + i}>
                         <div className="flex aspect-square items-center justify-center bg-background sm:aspect-[4/3]">
                           <img
-                            src={src}
+                            src={proxyImageUrl(src)}
                             alt={`${product.title} ${i + 1}`}
                             referrerPolicy="no-referrer"
                             loading="lazy"
@@ -181,7 +182,7 @@ export function ProductModal({ product, onClose }: Props) {
                     }`}
                   >
                     <img
-                      src={src}
+                      src={proxyImageUrl(src)}
                       alt={`Miniatura ${i + 1}`}
                       referrerPolicy="no-referrer"
                       className="h-12 w-12 object-cover sm:h-14 sm:w-14"
