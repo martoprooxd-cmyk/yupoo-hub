@@ -180,9 +180,9 @@ function decodeEntities(s: string): string {
 }
 
 function parseAlbumImages(html: string): string[] {
-  const urls = new Set<string>();
+  const ordered: string[] = [];
+  const seen = new Set<string>();
 
-  // Match every attribute on <img> that might hold the src (yupoo lazy-loads via many attrs)
   const imgRegex = /<img\b([^>]+)>/gi;
   const attrRegex = /\b(?:data-origin-src|data-origin|data-src|data-original|data-lazy|data-echo|src)\s*=\s*"([^"]+)"/gi;
 
@@ -195,16 +195,17 @@ function parseAlbumImages(html: string): string[] {
       let src = decodeEntities(a[1].trim());
       if (!src || src.startsWith("data:")) continue;
       if (src.startsWith("//")) src = "https:" + src;
-      // Keep only actual album photos, not Yupoo UI/icons/social assets
       if (!/^https?:\/\/photo\.yupoo\.com\//i.test(src)) continue;
       if (/im_photo_album|avatar|logo|qrcode|favicon|sprite|loading_icon/i.test(src)) continue;
-      // Upgrade thumb/small variants to medium when possible
       src = src.replace(/_(?:thumb|small)\.(jpe?g|png|webp)/i, "_medium.$1");
-      urls.add(src);
+      const key = normalizeImageKey(src);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ordered.push(src);
     }
   }
 
-  return Array.from(urls);
+  return ordered;
 }
 
 export const fetchAlbumImages = createServerFn({ method: "POST" })
