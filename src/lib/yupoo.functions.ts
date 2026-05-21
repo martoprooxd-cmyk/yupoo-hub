@@ -93,7 +93,7 @@ async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]>
   const base = catalog.url.replace(/\/$/, "");
   const albums = parseAlbums(html, base);
 
-  return albums.slice(0, 60).map((a, i) => ({
+  return albums.slice(0, 80).map((a, i) => ({
     id: `${catalog.id}-${i}-${a.url.slice(-20)}`,
     title: a.title,
     url: a.url,
@@ -102,6 +102,48 @@ async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]>
     catalogName: catalog.name,
     category: catalog.category,
   }));
+}
+
+// Normalize Yupoo image URL: drop query, drop size suffix, lowercase
+function normalizeImageKey(src: string): string {
+  try {
+    const u = new URL(src);
+    let path = u.pathname.toLowerCase();
+    path = path.replace(/_(?:thumb|small|medium|big|large|origin)\.(jpe?g|png|webp|gif)$/i, ".$1");
+    return u.host + path;
+  } catch {
+    return src.toLowerCase().split("?")[0];
+  }
+}
+
+// Normalize title to detect near-duplicates (same product split across albums)
+function normalizeTitleKey(t: string): string {
+  return t
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function dedupeProducts(products: Product[]): Product[] {
+  const seenUrl = new Set<string>();
+  const seenImage = new Set<string>();
+  const seenTitle = new Set<string>();
+  const out: Product[] = [];
+  for (const p of products) {
+    const urlKey = p.url.split("?")[0].toLowerCase();
+    const imgKey = normalizeImageKey(p.image);
+    const titleKey = `${p.catalog}::${normalizeTitleKey(p.title)}`;
+    if (seenUrl.has(urlKey)) continue;
+    if (seenImage.has(imgKey)) continue;
+    if (titleKey.length > 10 && seenTitle.has(titleKey)) continue;
+    seenUrl.add(urlKey);
+    seenImage.add(imgKey);
+    seenTitle.add(titleKey);
+    out.push(p);
+  }
+  return out;
 }
 
 export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
@@ -120,7 +162,7 @@ export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
     });
 
     return {
-      products,
+      products: dedupeProducts(products),
       errors,
       fetchedAt: new Date().toISOString(),
     };
