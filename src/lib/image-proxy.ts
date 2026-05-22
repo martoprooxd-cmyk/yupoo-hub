@@ -1,4 +1,4 @@
-const IMAGE_PROXY_PATH = "/api/image";
+const IMAGE_PROXY_PATH = "/api/public/image";
 
 export function proxyImageUrl(src: string): string {
   if (!src || src.startsWith("data:")) return src;

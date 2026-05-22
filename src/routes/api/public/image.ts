@@ -20,7 +20,7 @@ function badRequest(message: string, status = 400) {
   });
 }
 
-export const Route = createFileRoute("/api/image")({
+export const Route = createFileRoute("/api/public/image")({
   server: {
     handlers: {
       GET: async ({ request }) => {

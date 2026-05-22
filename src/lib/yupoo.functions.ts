@@ -31,8 +31,8 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
 
   let m: RegExpExecArray | null;
   while ((m = blockRegex.exec(html)) !== null) {
-    const href = m[1];
-    let title = (m[2] || "").trim();
+    const href = decodeEntities(m[1]);
+    let title = decodeEntities((m[2] || "").trim());
     const inner = m[3];
 
     const imgMatch =
@@ -41,26 +41,32 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
       inner.match(/<img[^>]*\ssrc="([^"]+)"/i);
     if (!imgMatch) continue;
 
-    let image = imgMatch[1].trim();
+    let image = decodeEntities(imgMatch[1].trim());
     if (image.startsWith("//")) image = "https:" + image;
     if (image.startsWith("/")) image = base + image;
     if (/im_photo_album|avatar|logo|qrcode|favicon|sprite|loading_icon/i.test(image)) continue;
 
     if (!title) {
-      const titleMatch = inner.match(/album__main_title[^>]*>([^<]+)</i);
-      if (titleMatch) title = titleMatch[1].trim();
+      const titleMatch =
+        inner.match(/album__main_title[^>]*>\s*([^<]+?)\s*</i) ||
+        inner.match(/\btitle="([^"]+)"/i) ||
+        inner.match(/<h[1-6][^>]*>\s*([^<]+?)\s*<\/h[1-6]>/i) ||
+        inner.match(/<span[^>]*>\s*([^<]+?)\s*<\/span>/i);
+      if (titleMatch) title = decodeEntities(titleMatch[1].trim());
     }
     if (!title) title = "Álbum";
 
     const url = href.startsWith("http") ? href : base + href;
-    if (seen.has(url)) continue;
-    seen.add(url);
+    const urlKey = url.split("?")[0];
+    if (seen.has(urlKey)) continue;
+    seen.add(urlKey);
 
     items.push({ title, url, image });
   }
 
   return items;
 }
+
 
 async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
@@ -126,6 +132,15 @@ function normalizeTitleKey(t: string): string {
     .trim();
 }
 
+function isGenericTitle(t: string): boolean {
+  const k = normalizeTitleKey(t);
+  if (!k) return true;
+  // "album", "albumes", "foto(s)", solo dígitos, o menos de 4 caracteres significativos
+  if (/^(album|albumes|albums|foto|fotos|photo|photos|untitled|sin titulo)$/.test(k)) return true;
+  if (/^\d+$/.test(k.replace(/\s+/g, ""))) return true;
+  return k.replace(/\s+/g, "").length < 4;
+}
+
 function dedupeProducts(products: Product[]): Product[] {
   const seenUrl = new Set<string>();
   const seenImage = new Set<string>();
@@ -134,17 +149,20 @@ function dedupeProducts(products: Product[]): Product[] {
   for (const p of products) {
     const urlKey = p.url.split("?")[0].toLowerCase();
     const imgKey = normalizeImageKey(p.image);
-    const titleKey = `${p.catalog}::${normalizeTitleKey(p.title)}`;
     if (seenUrl.has(urlKey)) continue;
     if (seenImage.has(imgKey)) continue;
-    if (titleKey.length > 10 && seenTitle.has(titleKey)) continue;
+    if (!isGenericTitle(p.title)) {
+      const titleKey = `${p.catalog}::${normalizeTitleKey(p.title)}`;
+      if (seenTitle.has(titleKey)) continue;
+      seenTitle.add(titleKey);
+    }
     seenUrl.add(urlKey);
     seenImage.add(imgKey);
-    seenTitle.add(titleKey);
     out.push(p);
   }
   return out;
 }
+
 
 export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ products: Product[]; errors: string[]; fetchedAt: string }> => {
