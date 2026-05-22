@@ -1,26 +1,42 @@
 # Plan
 
-## Objetivo
+## Diagnóstico (dos bugs confirmados)
 
-Instalar `@paypal/react-paypal-js` y limpiar el catálogo para que no aparezcan productos/imágenes repetidas o fragmentadas como si fueran productos distintos.
+### Bug 1 — Las imágenes no cargan: el proxy está protegido por auth
 
-## Cambios propuestos
+`/api/image` en el preview devuelve **302 → auth-bridge** (Lovable bloquea todas las rutas que no estén bajo `/api/public/*` en los sitios desplegados). Por eso ninguna `<img>` se ve: el navegador sigue el redirect a una página HTML de login en vez de recibir bytes de imagen.
 
-1. Instalar el paquete npm `@paypal/react-paypal-js`.
-2. Mejorar el parser de Yupoo para normalizar URLs e imágenes antes de guardarlas.
-3. Deduplicar productos por álbum real, imagen principal normalizada y título normalizado.
-4. Deduplicar imágenes dentro del modal/carrusel para que una misma foto no salga varias veces con variantes `_thumb`, `_small`, `_medium` u otros parámetros.
-5. Mantener el comportamiento actual de búsqueda, filtros, favoritos, proxy de imágenes y modal.
+### Bug 2 — Sólo aparece 1 producto por catálogo
 
-## Detalles técnicos
+`parseAlbums` no consigue extraer el título real de los álbumes y todos terminan como `"Álbum"`. Luego `dedupeProducts` hace:
 
-- La deduplicación se hará en `src/lib/yupoo.functions.ts`, antes de devolver productos e imágenes al frontend.
-- Se conservará una única tarjeta por álbum/producto cuando Yupoo devuelva duplicados.
-- En el modal se mantendrá el orden original de las fotos, pero eliminando repetidas normalizadas.
-- No se añadirá todavía checkout ni botones de PayPal; solo se instalará el paquete y se corregirá el catálogo duplicado.
+```ts
+const titleKey = `${p.catalog}::${normalizeTitleKey(p.title)}`;
+if (titleKey.length > 10 && seenTitle.has(titleKey)) continue;
+```
 
-## Verificación
+`"panshirt::album"` mide >10 chars → el segundo producto en adelante se descarta. Resultado: 1 por catálogo (justo lo que muestra la network response actual: 4 productos).
 
-- Revisar que el paquete quede en `package.json`.
-- Comprobar que la cuadrícula muestra menos duplicados.
-- Comprobar que el carrusel no repite miniaturas/fotos del mismo álbum.
+Además los `href` capturados llevan `&amp;` sin decodificar, lo que ensucia las URLs guardadas.
+
+## Cambios
+
+1. **Mover el proxy** de `src/routes/api/image.ts` → `src/routes/api/public/image.ts`. La ruta pública (`/api/public/image`) no pasa por el auth-bridge del preview/publicado. Actualizar `src/lib/image-proxy.ts` para apuntar a `/api/public/image`.
+
+2. **Arreglar `parseAlbums`** en `src/lib/yupoo.functions.ts`:
+   - Decodificar entidades HTML (`&amp;`, `&#x2F;`…) en `href` e `image`.
+   - Buscar el título también en `album__main_title` y en `title="…"` aunque venga dentro de un `<h3>`/`<span>` interno antes de caer en `"Álbum"`.
+
+3. **Arreglar `dedupeProducts`**:
+   - No deduplicar por título cuando el título es genérico (`"album"`, vacío, solo dígitos, < ~3 palabras significativas).
+   - Mantener la dedupe estricta por `urlKey` (siempre) y por `imgKey` (siempre).
+   - Así dejan de colapsarse 80 álbumes con título por defecto en uno solo.
+
+4. **Verificar** con `curl` que `/api/public/image?url=…` devuelve `200 image/jpeg` y revisar en el preview que vuelven a aparecer todos los productos del catálogo y todas las miniaturas del modal.
+
+## Lo que NO cambia
+
+- Lógica de reservas / precios 22€-25€.
+- Carrusel, pre-carga de miniaturas, sincronización del thumbnail activo.
+- Parser de imágenes del álbum (`parseAlbumImages`) ni `normalizeImageKey`.
+- Filtros, búsqueda, favoritos, instalación de `@paypal/react-paypal-js`.
