@@ -31,8 +31,8 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
 
   let m: RegExpExecArray | null;
   while ((m = blockRegex.exec(html)) !== null) {
-    const href = m[1];
-    let title = (m[2] || "").trim();
+    const href = decodeEntities(m[1]);
+    let title = decodeEntities((m[2] || "").trim());
     const inner = m[3];
 
     const imgMatch =
@@ -41,26 +41,32 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
       inner.match(/<img[^>]*\ssrc="([^"]+)"/i);
     if (!imgMatch) continue;
 
-    let image = imgMatch[1].trim();
+    let image = decodeEntities(imgMatch[1].trim());
     if (image.startsWith("//")) image = "https:" + image;
     if (image.startsWith("/")) image = base + image;
     if (/im_photo_album|avatar|logo|qrcode|favicon|sprite|loading_icon/i.test(image)) continue;
 
     if (!title) {
-      const titleMatch = inner.match(/album__main_title[^>]*>([^<]+)</i);
-      if (titleMatch) title = titleMatch[1].trim();
+      const titleMatch =
+        inner.match(/album__main_title[^>]*>\s*([^<]+?)\s*</i) ||
+        inner.match(/\btitle="([^"]+)"/i) ||
+        inner.match(/<h[1-6][^>]*>\s*([^<]+?)\s*<\/h[1-6]>/i) ||
+        inner.match(/<span[^>]*>\s*([^<]+?)\s*<\/span>/i);
+      if (titleMatch) title = decodeEntities(titleMatch[1].trim());
     }
     if (!title) title = "Álbum";
 
     const url = href.startsWith("http") ? href : base + href;
-    if (seen.has(url)) continue;
-    seen.add(url);
+    const urlKey = url.split("?")[0];
+    if (seen.has(urlKey)) continue;
+    seen.add(urlKey);
 
     items.push({ title, url, image });
   }
 
   return items;
 }
+
 
 async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
