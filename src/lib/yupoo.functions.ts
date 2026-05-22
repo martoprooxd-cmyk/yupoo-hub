@@ -132,6 +132,15 @@ function normalizeTitleKey(t: string): string {
     .trim();
 }
 
+function isGenericTitle(t: string): boolean {
+  const k = normalizeTitleKey(t);
+  if (!k) return true;
+  // "album", "albumes", "foto(s)", solo dígitos, o menos de 4 caracteres significativos
+  if (/^(album|albumes|albums|foto|fotos|photo|photos|untitled|sin titulo)$/.test(k)) return true;
+  if (/^\d+$/.test(k.replace(/\s+/g, ""))) return true;
+  return k.replace(/\s+/g, "").length < 4;
+}
+
 function dedupeProducts(products: Product[]): Product[] {
   const seenUrl = new Set<string>();
   const seenImage = new Set<string>();
@@ -140,17 +149,20 @@ function dedupeProducts(products: Product[]): Product[] {
   for (const p of products) {
     const urlKey = p.url.split("?")[0].toLowerCase();
     const imgKey = normalizeImageKey(p.image);
-    const titleKey = `${p.catalog}::${normalizeTitleKey(p.title)}`;
     if (seenUrl.has(urlKey)) continue;
     if (seenImage.has(imgKey)) continue;
-    if (titleKey.length > 10 && seenTitle.has(titleKey)) continue;
+    if (!isGenericTitle(p.title)) {
+      const titleKey = `${p.catalog}::${normalizeTitleKey(p.title)}`;
+      if (seenTitle.has(titleKey)) continue;
+      seenTitle.add(titleKey);
+    }
     seenUrl.add(urlKey);
     seenImage.add(imgKey);
-    seenTitle.add(titleKey);
     out.push(p);
   }
   return out;
 }
+
 
 export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ products: Product[]; errors: string[]; fetchedAt: string }> => {
