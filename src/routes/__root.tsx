@@ -72,14 +72,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "Yupo hub" },
+      { name: "description", content: "Yupoo Hub aggregates Yupoo product catalogs into a modern, responsive online store interface." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "Yupo hub" },
+      { property: "og:description", content: "Yupoo Hub aggregates Yupoo product catalogs into a modern, responsive online store interface." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Yupo hub" },
+      { name: "twitter:description", content: "Yupoo Hub aggregates Yupoo product catalogs into a modern, responsive online store interface." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/ec54bf47-64e0-4f54-b1bb-1f62eb0e144d/id-preview-c64812cc--b9cf1246-e7ca-4748-b870-6aedbc330e5d.lovable.app-1779369298129.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/ec54bf47-64e0-4f54-b1bb-1f62eb0e144d/id-preview-c64812cc--b9cf1246-e7ca-4748-b870-6aedbc330e5d.lovable.app-1779369298129.png" },
     ],
     links: [
       {
