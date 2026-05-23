@@ -116,6 +116,7 @@ function normalizeImageKey(src: string): string {
     const u = new URL(src);
     let path = u.pathname.toLowerCase();
     path = path.replace(/_(?:thumb|small|medium|big|large|origin)\.(jpe?g|png|webp|gif)$/i, ".$1");
+    path = path.replace(/\/(thumb|tiny|small|medium|big|large|origin|full|hd)(\.jpe?g|\.png|\.webp|\.gif)$/i, "/photo$2");
     return u.host + path;
   } catch {
     return src.toLowerCase().split("?")[0];
