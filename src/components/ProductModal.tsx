@@ -30,6 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fetchAlbumImages, type Product } from "@/lib/yupoo.functions";
+import { proxyImageUrl } from "@/lib/image-proxy";
 
 // ─── PayPal config ────────────────────────────────────────────────────────────
 // Cambia esto por tu Client ID real de PayPal (sandbox o live)
@@ -400,7 +401,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                   <ImageOff className="h-8 w-8" />
                   <p className="text-xs">No se pudieron cargar las imágenes</p>
                   <img
-                    src={product.image}
+                    src={proxyImageUrl(product.image)}
                     alt={product.title}
                     referrerPolicy="no-referrer"
                     className="mt-2 max-h-64 rounded-sm"
@@ -413,7 +414,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                       <CarouselItem key={src + i}>
                         <div className="flex aspect-square items-center justify-center bg-background sm:aspect-[4/3]">
                           <img
-                            src={src}
+                            src={proxyImageUrl(src)}
                             alt={`${product.title} ${i + 1}`}
                             referrerPolicy="no-referrer"
                             loading="lazy"
@@ -486,7 +487,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                     }`}
                   >
                     <img
-                      src={src}
+                      src={proxyImageUrl(src)}
                       alt={`Miniatura ${i + 1}`}
                       referrerPolicy="no-referrer"
                       className="h-12 w-12 object-cover sm:h-14 sm:w-14"
@@ -529,14 +530,27 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
               {canReserve && (
                 <div className="mt-5 rounded-lg border border-border bg-background/60 p-4">
                   {step === "idle" && (
-                    <Button
-                      onClick={() => setStep("form")}
-                      size="lg"
-                      className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-                    >
-                      <ShoppingBag className="mr-2 h-4 w-4" />
-                      Reservar por {price} €
-                    </Button>
+                    <>
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        Consultas previas:{" "}
+                        <a
+                          href="https://instagram.com/tu_proveedor_de_confi"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline hover:text-primary/80"
+                        >
+                          @tu_proveedor_de_confi
+                        </a>
+                      </p>
+                      <Button
+                        onClick={() => setStep("form")}
+                        size="lg"
+                        className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                      >
+                        <ShoppingBag className="mr-2 h-4 w-4" />
+                        Reservar por {price} €
+                      </Button>
+                    </>
                   )}
 
                   {step === "form" && (

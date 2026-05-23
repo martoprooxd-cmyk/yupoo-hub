@@ -384,7 +384,12 @@ function Index() {
         </div>
       </footer>
 
-      <ProductModal product={selected} onClose={() => setSelected(null)} />
+      <ProductModal
+        product={selected}
+        onClose={() => setSelected(null)}
+        isFav={selected ? favs.includes(selected.id) : false}
+        onToggleFav={toggleFav}
+      />
     </div>
   );
 }
