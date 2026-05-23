@@ -216,6 +216,7 @@ function parseAlbumImages(html: string): string[] {
       if (src.startsWith("//")) src = "https:" + src;
       if (!/^https?:\/\/photo\.yupoo\.com\//i.test(src)) continue;
       if (/im_photo_album|avatar|logo|qrcode|favicon|sprite|loading_icon/i.test(src)) continue;
+      if (/\/(thumb|tiny|small|medium|big|large|origin|full|hd|raw)\.(jpe?g|png|webp|gif)$/i.test(src)) continue;
       src = src.replace(/_(?:thumb|small)\.(jpe?g|png|webp)/i, "_medium.$1");
       const key = normalizeImageKey(src);
       if (seen.has(key)) continue;
