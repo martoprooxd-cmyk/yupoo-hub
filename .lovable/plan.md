@@ -1,32 +1,27 @@
 ## Cambios
 
-### 1. Añadir `square` al filtro de nombres genéricos de tamaño
+### 1. `src/routes/__root.tsx` — título y descripción
+- `title`, `og:title`, `twitter:title`: `"VAULT — Yupoo Catalog Hub"`
+- `description`, `og:description`, `twitter:description`: `"Catálogo unificado de Yupoo. Zapatillas, ropa, camisetas de fútbol, ropa de invierno y accesorios."`
 
-En `src/lib/yupoo.functions.ts`, línea 219, dentro de `parseAlbumImages`, añadir `square` al regex existente:
+### 2. `src/routes/index.tsx` — eliminar sección Password
+- Borrar la constante `PASSWORD`.
+- Borrar la función `copyPass`.
+- Borrar el enlace `<a href="#password">Password</a>` del nav.
+- Borrar la `<section id="password">` completa.
+- Quitar imports ya no usados: `Copy`, `Check` de `lucide-react`.
 
-```diff
-- if (/\/(thumb|tiny|small|medium|big|large|origin|full|hd|raw)\.(jpe?g|png|webp|gif)$/i.test(src)) continue;
-+ if (/\/(thumb|tiny|small|medium|big|large|origin|full|hd|raw|square)\.(jpe?g|png|webp|gif)$/i.test(src)) continue;
-```
+### 3. `src/routes/index.tsx` — footer
+- Eliminar el `<p>` con `"Powered by Firecrawl"` (incluye el spinner `Loader2`).
+- Quitar import `Loader2` si queda sin uso.
 
-Esto descarta también variantes como `/square.jpg` que Yupoo usa como nombre de archivo de tamaño genérico.
+### 4. Ocultar badge "Edit with Lovable"
+- Llamar a `publish_settings--set_badge_visibility` con `hide_badge: true`. Requiere plan Pro; si falla, avisar al usuario.
 
-### 2. Cambiar estilos de las tarjetas de producto
+### 5. Botón flotante de Instagram
+- En `src/routes/index.tsx`, añadir un `<a>` fijo (`fixed bottom-6 right-6 z-50`), redondo, con borde primario y glow del tema, enlazando a `https://www.instagram.com/tu_proveedor_de_confi` con `target="_blank" rel="noopener noreferrer"`.
+- `lucide-react` no exporta icono Instagram → usar SVG inline (logo oficial simplificado) con `aria-label="Instagram"`.
 
-En `src/routes/index.tsx`, dentro de la grid de productos (líneas ~273 y ~279):
-
-```diff
-- <div className="relative aspect-[3/4] overflow-hidden bg-muted">
-+ <div className="relative aspect-[3/4] overflow-hidden bg-card">
-```
-
-```diff
-- className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
-+ className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
-```
-
-Esto hace que las imágenes se muestren completas (sin recorte) sobre un fondo consistente con la tarjeta.
-
-## Verificación
-- Build pasa sin errores TS.
-- Preview visual: imágenes completas sin recorte, fondo `bg-card` en contenedor.
+## Notas técnicas
+- Los favoritos ya existían y se mantienen intactos.
+- No se tocan rutas, loaders ni server functions.
