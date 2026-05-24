@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, ExternalLink, Heart, Moon, Sun, Copy, Check, RefreshCw, Loader2 } from "lucide-react";
+import { Search, ExternalLink, Heart, Moon, Sun, RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,14 +45,14 @@ const CATALOGS = [
   { id: "winterclothes", name: "Winter Clothes", url: "https://winterclothes.x.yupoo.com/categories", category: "invierno" as const },
 ];
 
-const PASSWORD = "112233445566";
+
 
 function Index() {
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState<Category>("all");
   const [dark, setDark] = useState(true);
   const [favs, setFavs] = useState<string[]>([]);
-  const [copied, setCopied] = useState(false);
+  
   const [showFavs, setShowFavs] = useState(false);
   const [selected, setSelected] = useState<Product | null>(null);
 
@@ -90,11 +90,6 @@ function Index() {
   const toggleFav = (id: string) =>
     setFavs((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]));
 
-  const copyPass = () => {
-    navigator.clipboard.writeText(PASSWORD);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["yupoo-products"] });
@@ -134,7 +129,7 @@ function Index() {
           <nav className="hidden items-center gap-6 text-sm font-medium md:flex">
             <a href="#productos" className="text-muted-foreground transition hover:text-foreground">Productos</a>
             <a href="#catalogos" className="text-muted-foreground transition hover:text-foreground">Catálogos</a>
-            <a href="#password" className="text-muted-foreground transition hover:text-foreground">Password</a>
+            
           </nav>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" onClick={refresh} disabled={isFetching} aria-label="Refrescar">
@@ -347,42 +342,27 @@ function Index() {
         </div>
       </section>
 
-      {/* Password */}
-      <section id="password" className="border-t border-border">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
-          <div className="grid items-center gap-8 md:grid-cols-2">
-            <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-primary">03 / Acceso</p>
-              <h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Password para álbumes protegidos</h2>
-              <p className="mt-4 text-muted-foreground">
-                Algunos álbumes de Yupoo requieren contraseña. Cópiala y pégala cuando te la pidan.
-              </p>
-            </div>
-            <button
-              onClick={copyPass}
-              className="group flex items-center justify-between rounded-sm border border-border bg-card p-6 transition hover:border-primary"
-            >
-              <div className="text-left">
-                <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Password</p>
-                <p className="mt-1 font-mono text-2xl font-bold tracking-wider">{PASSWORD}</p>
-              </div>
-              <div className="grid h-12 w-12 place-items-center rounded-sm border border-border bg-background transition group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground">
-                {copied ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
-              </div>
-            </button>
-          </div>
-        </div>
-      </section>
-
       <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:px-6">
+        <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-8 text-sm text-muted-foreground sm:px-6">
           <p>© {new Date().getFullYear()} VAULT — Yupoo Catalog Hub</p>
-          <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest">
-            {isFetching && <Loader2 className="h-3 w-3 animate-spin" />}
-            Powered by Firecrawl
-          </p>
         </div>
       </footer>
+
+      {/* Floating Instagram button */}
+      <a
+        href="https://www.instagram.com/tu_proveedor_de_confi"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Instagram"
+        className="fixed bottom-6 right-6 z-50 grid h-14 w-14 place-items-center rounded-full border border-primary bg-background text-primary transition hover:bg-primary hover:text-primary-foreground"
+        style={{ boxShadow: "var(--glow)" }}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+          <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+          <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+        </svg>
+      </a>
 
       <ProductModal
         product={selected}
