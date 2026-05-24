@@ -270,13 +270,13 @@ function Index() {
                   onClick={() => setSelected(p)}
                   className="block w-full text-left"
                 >
-                  <div className="relative aspect-[3/4] overflow-hidden bg-muted">
+                  <div className="relative aspect-[3/4] overflow-hidden bg-card">
                     <img
                       src={proxyImageUrl(p.image)}
                       alt={p.title}
                       loading="lazy"
                       referrerPolicy="no-referrer"
-                      className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                      className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.opacity = "0.2";
                       }}
