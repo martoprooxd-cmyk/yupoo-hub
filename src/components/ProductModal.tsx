@@ -32,7 +32,7 @@ import { Label } from "@/components/ui/label";
 import { fetchAlbumImages, type Product } from "@/lib/yupoo.functions";
 import { proxyImageUrl } from "@/lib/image-proxy";
 
-// ─── PayPal config ────────────────────────────────────────────────────────────
+// PayPal config
 // Cambia esto por tu Client ID real de PayPal (sandbox o live)
 // Panel PayPal → Apps & Credentials → Tu app → Client ID
 const PAYPAL_CLIENT_ID = "TU_PAYPAL_CLIENT_ID_AQUI";
@@ -40,7 +40,7 @@ const PAYPAL_CLIENT_ID = "TU_PAYPAL_CLIENT_ID_AQUI";
 const PRICE_CURRENT = 22; // € temporada actual
 const PRICE_RETRO = 25;   // € retro / clásica
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+// Tipos
 
 type ShippingAddress = {
   nombre: string;
@@ -65,7 +65,7 @@ declare global {
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Helpers
 
 function isFootball(product: Product): boolean {
   const h = `${product.title} ${product.catalogName} ${product.category}`.toLowerCase();
@@ -97,7 +97,7 @@ function getPrice(product: Product): number {
   return isRetro(product) ? PRICE_RETRO : PRICE_CURRENT;
 }
 
-// ─── Sub-componente: formulario de dirección ──────────────────────────────────
+//  Sub-componente: formulario de dirección
 
 function ShippingForm({
   address,
@@ -158,7 +158,7 @@ function ShippingForm({
   );
 }
 
-// ─── Sub-componente: paso PayPal (sin npm, usa SDK por script) ────────────────
+// Sub-componente: paso PayPal (sin npm, usa SDK por script)
 
 function PayPalStep({
   product,
@@ -297,7 +297,7 @@ function PayPalStep({
   );
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
+// Componente principal
 
 type Props = {
   product: Product | null;
@@ -390,7 +390,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
       <DialogContent className="max-w-4xl border-border bg-card p-0">
         {product && (
           <>
-            {/* ── Carrusel ── */}
+            {/*  Carrusel  */}
             <div className="relative bg-background">
               {isLoading ? (
                 <div className="flex aspect-square items-center justify-center sm:aspect-[4/3]">
