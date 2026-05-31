@@ -273,7 +273,7 @@ function Index() {
                       referrerPolicy="no-referrer"
                       className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).style.opacity = "0.2";
+                        e.currentTarget.style.opacity = "0.2";
                       }}
                     />
                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/60 to-transparent p-3">
