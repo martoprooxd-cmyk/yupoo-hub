@@ -265,7 +265,7 @@ function Index() {
                   onClick={() => setSelected(p)}
                   className="block w-full text-left"
                 >
-                  <div className="relative aspect-[3/4] overflow-hidden bg-muted"
+                 <div className="relative aspect-[3/4] overflow-hidden bg-muted">
                     <img
                       src={proxyImageUrl(p.image)}
                       alt={p.title}
