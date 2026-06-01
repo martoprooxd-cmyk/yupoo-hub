@@ -281,7 +281,7 @@ function PayPalStep({
       <div className="rounded-md border border-border bg-background/60 p-3 text-sm">
         <p className="font-semibold">{product.title}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {isRetro(product) ? "Retro" : "Temporada actual"} · {price} €
+          {isRetro(product) ? "Retro" : "Temporada actual"} · Talla {size} · {price} €
         </p>
         <div className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
           <MapPin className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
