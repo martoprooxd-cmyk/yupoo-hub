@@ -9,6 +9,9 @@ import {
   CheckCircle2,
   MapPin,
   Heart,
+  Share2,
+  Check,
+  Send,
 } from "lucide-react";
 import {
   Dialog,
@@ -97,18 +100,24 @@ function getPrice(product: Product): number {
   return isRetro(product) ? PRICE_RETRO : PRICE_CURRENT;
 }
 
+const ADULT_SIZES = ["S", "M", "L", "XL", "XXL"];
+const KID_SIZES = ["XS", "S", "M"];
+
 //  Sub-componente: formulario de dirección
 
 function ShippingForm({
   address,
   onChange,
   onContinue,
+  canContinue = true,
 }: {
   address: ShippingAddress;
   onChange: (a: ShippingAddress) => void;
   onContinue: () => void;
+  canContinue?: boolean;
 }) {
   const isValid =
+    canContinue &&
     address.nombre.trim() &&
     address.direccion.trim() &&
     address.ciudad.trim() &&
@@ -163,11 +172,13 @@ function ShippingForm({
 function PayPalStep({
   product,
   address,
+  size,
   onSuccess,
   onBack,
 }: {
   product: Product;
   address: ShippingAddress;
+  size: string;
   onSuccess: () => void;
   onBack: () => void;
 }) {
@@ -192,11 +203,22 @@ function PayPalStep({
             intent: "CAPTURE",
             purchase_units: [
               {
-                description: product.title,
+                description: `${product.title} — Talla ${size}`,
                 amount: {
                   currency_code: "EUR",
                   value: price.toFixed(2),
+                  breakdown: {
+                    item_total: { currency_code: "EUR", value: price.toFixed(2) },
+                  },
                 },
+                items: [
+                  {
+                    name: product.title.slice(0, 120),
+                    description: `Talla ${size}`,
+                    quantity: "1",
+                    unit_amount: { currency_code: "EUR", value: price.toFixed(2) },
+                  },
+                ],
                 shipping: {
                   name: { full_name: address.nombre },
                   address: {
@@ -227,7 +249,7 @@ function PayPalStep({
     } catch {
       setSdkError(true);
     }
-  }, [product, address, price, onSuccess]);
+  }, [product, address, size, price, onSuccess]);
 
   useEffect(() => {
     // Si el SDK ya está cargado, renderizar directamente
@@ -262,7 +284,7 @@ function PayPalStep({
       <div className="rounded-md border border-border bg-background/60 p-3 text-sm">
         <p className="font-semibold">{product.title}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {isRetro(product) ? "Retro" : "Temporada actual"} · {price} €
+          {isRetro(product) ? "Retro" : "Temporada actual"} · Talla {size} · {price} €
         </p>
         <div className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
           <MapPin className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
@@ -320,13 +342,34 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
     codigoPostal: "",
     pais: "España",
   });
+  const [sizeMode, setSizeMode] = useState<"adulto" | "nino">("adulto");
+  const [size, setSize] = useState<string>("");
+  const [contact, setContact] = useState<string>("");
+  const [contactSent, setContactSent] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Resetear al cambiar de producto o cerrar
   useEffect(() => {
     setStep("idle");
     setAddress({ nombre: "", direccion: "", ciudad: "", codigoPostal: "", pais: "España" });
     setCurrent(0);
+    setSize("");
+    setSizeMode("adulto");
+    setContact("");
+    setContactSent(false);
+    setCopied(false);
   }, [product?.url]);
+
+  const shareProduct = useCallback(async () => {
+    if (!product) return;
+    try {
+      await navigator.clipboard.writeText(`¡Mira esto! ${product.url}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }, [product]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["album-images", product?.url],
@@ -439,18 +482,31 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                 </Carousel>
               )}
 
-              {/* Botón favorito sobre el carrusel */}
-              <button
-                onClick={() => onToggleFav(product.id)}
-                aria-label={isFav ? "Quitar de favoritos" : "Añadir a favoritos"}
-                className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-background/80 shadow backdrop-blur transition hover:bg-background"
-              >
-                <Heart
-                  className={`h-4 w-4 transition ${
-                    isFav ? "fill-primary text-primary" : "text-foreground"
-                  }`}
-                />
-              </button>
+              {/* Botones flotantes sobre el carrusel */}
+              <div className="absolute right-3 top-3 z-10 flex gap-2">
+                <button
+                  onClick={shareProduct}
+                  aria-label="Compartir producto"
+                  className="grid h-9 w-9 place-items-center rounded-full bg-background/80 shadow backdrop-blur transition hover:bg-background"
+                >
+                  {copied ? (
+                    <Check className="h-4 w-4 text-emerald-500" />
+                  ) : (
+                    <Share2 className="h-4 w-4 text-foreground" />
+                  )}
+                </button>
+                <button
+                  onClick={() => onToggleFav(product.id)}
+                  aria-label={isFav ? "Quitar de favoritos" : "Añadir a favoritos"}
+                  className="grid h-9 w-9 place-items-center rounded-full bg-background/80 shadow backdrop-blur transition hover:bg-background"
+                >
+                  <Heart
+                    className={`h-4 w-4 transition ${
+                      isFav ? "fill-primary text-primary" : "text-foreground"
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
 
             {/* ── Miniaturas ── */}
@@ -555,6 +611,40 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
 
                   {step === "form" && (
                     <>
+                      <p className="mb-2 text-sm font-semibold">Talla</p>
+                      <div className="mb-3 flex gap-2">
+                        {(["adulto", "nino"] as const).map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => { setSizeMode(m); setSize(""); }}
+                            className={`flex-1 rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-widest transition ${
+                              sizeMode === m
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border text-muted-foreground hover:border-primary/50"
+                            }`}
+                          >
+                            {m === "adulto" ? "Adulto" : "Niño"}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="mb-4 flex flex-wrap gap-2">
+                        {(sizeMode === "adulto" ? ADULT_SIZES : KID_SIZES).map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setSize(s)}
+                            className={`min-w-[44px] rounded-md border px-3 py-2 text-sm font-bold transition ${
+                              size === s
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border bg-background text-foreground hover:border-primary/50"
+                            }`}
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+
                       <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
                         <MapPin className="h-4 w-4 text-primary" />
                         Dirección de envío
@@ -562,8 +652,14 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                       <ShippingForm
                         address={address}
                         onChange={setAddress}
+                        canContinue={!!size}
                         onContinue={() => setStep("paypal")}
                       />
+                      {!size && (
+                        <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                          Selecciona una talla para continuar
+                        </p>
+                      )}
                     </>
                   )}
 
@@ -571,6 +667,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                     <PayPalStep
                       product={product}
                       address={address}
+                      size={size}
                       onSuccess={() => setStep("success")}
                       onBack={() => setStep("form")}
                     />
@@ -584,6 +681,43 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                         Te contactaremos para confirmar el envío a{" "}
                         <span className="font-medium text-foreground">{address.ciudad}</span>.
                       </p>
+
+                      {contactSent ? (
+                        <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600">
+                          ¡Gracias! Te escribiremos pronto a <span className="font-semibold">{contact}</span>.
+                        </p>
+                      ) : (
+                        <div className="mt-2 w-full max-w-sm space-y-2 text-left">
+                          <Label htmlFor="contact" className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                            WhatsApp o email para confirmación
+                          </Label>
+                          <div className="flex gap-2">
+                            <Input
+                              id="contact"
+                              value={contact}
+                              onChange={(e) => setContact(e.target.value)}
+                              placeholder="+34 600 000 000 o tu@email.com"
+                              className="border-border bg-background text-sm"
+                            />
+                            <Button
+                              type="button"
+                              disabled={!contact.trim()}
+                              onClick={() => {
+                                console.log("[Reserva] confirmación contacto:", {
+                                  product: product.title,
+                                  size,
+                                  address,
+                                  contact,
+                                });
+                                setContactSent(true);
+                              }}
+                              className="bg-primary text-primary-foreground hover:bg-primary/90"
+                            >
+                              <Send className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

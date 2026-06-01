@@ -16,11 +16,15 @@ import footballImg from "@/assets/cat-football.jpg";
 import winterImg from "@/assets/cat-winter.jpg";
 import accessoriesImg from "@/assets/cat-accessories.jpg";
 
+const OG_IMAGE_URL = `https://yupoo-hub.lovable.app${heroImg}`;
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "VAULT — Yupoo Catalog Hub | Sneakers, Streetwear & Jerseys" },
       { name: "description", content: "Catálogo unificado de Yupoo. Zapatillas, ropa, camisetas de fútbol, ropa de invierno y accesorios. Productos auto-cargados." },
+      { property: "og:image", content: OG_IMAGE_URL },
+      { name: "twitter:image", content: OG_IMAGE_URL },
     ],
   }),
   component: Index,
@@ -240,7 +244,7 @@ function Index() {
         {isLoading ? (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="aspect-[3/4] animate-pulse rounded-sm border border-border bg-card" />
+              <div key={i} className="skeleton-shimmer aspect-[3/4] rounded-sm border border-border" />
             ))}
           </div>
         ) : error ? (
@@ -255,7 +259,7 @@ function Index() {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
-            {filtered.map((p) => (
+            {filtered.map((p, i) => (
               <article
                 key={p.id}
                 className="group relative overflow-hidden rounded-sm border border-border bg-card transition hover:border-primary"
@@ -269,7 +273,8 @@ function Index() {
                     <img
                       src={proxyImageUrl(p.image)}
                       alt={p.title}
-                      loading="lazy"
+                      loading={i < 8 ? "eager" : "lazy"}
+                      fetchPriority={i < 4 ? "high" : "auto"}
                       referrerPolicy="no-referrer"
                       className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
                       onError={(e) => {
