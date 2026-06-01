@@ -109,12 +109,15 @@ function ShippingForm({
   address,
   onChange,
   onContinue,
+  canContinue = true,
 }: {
   address: ShippingAddress;
   onChange: (a: ShippingAddress) => void;
   onContinue: () => void;
+  canContinue?: boolean;
 }) {
   const isValid =
+    canContinue &&
     address.nombre.trim() &&
     address.direccion.trim() &&
     address.ciudad.trim() &&
