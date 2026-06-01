@@ -82,8 +82,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:site", content: "@Lovable" },
       { name: "twitter:title", content: "VAULT — Yupoo Catalog Hub" },
       { name: "twitter:description", content: "Catálogo unificado de Yupoo. Zapatillas, ropa, camisetas de fútbol, ropa de invierno y accesorios." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/ec54bf47-64e0-4f54-b1bb-1f62eb0e144d/id-preview-c64812cc--b9cf1246-e7ca-4748-b870-6aedbc330e5d.lovable.app-1779369298129.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/ec54bf47-64e0-4f54-b1bb-1f62eb0e144d/id-preview-c64812cc--b9cf1246-e7ca-4748-b870-6aedbc330e5d.lovable.app-1779369298129.png" },
     ],
     links: [
       {
