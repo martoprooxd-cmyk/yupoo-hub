@@ -9,6 +9,9 @@ import {
   CheckCircle2,
   MapPin,
   Heart,
+  Share2,
+  Check,
+  Send,
 } from "lucide-react";
 import {
   Dialog,
@@ -96,6 +99,9 @@ function isRetro(product: Product): boolean {
 function getPrice(product: Product): number {
   return isRetro(product) ? PRICE_RETRO : PRICE_CURRENT;
 }
+
+const ADULT_SIZES = ["S", "M", "L", "XL", "XXL"];
+const KID_SIZES = ["XS", "S", "M"];
 
 //  Sub-componente: formulario de dirección
 
