@@ -339,13 +339,34 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
     codigoPostal: "",
     pais: "España",
   });
+  const [sizeMode, setSizeMode] = useState<"adulto" | "nino">("adulto");
+  const [size, setSize] = useState<string>("");
+  const [contact, setContact] = useState<string>("");
+  const [contactSent, setContactSent] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Resetear al cambiar de producto o cerrar
   useEffect(() => {
     setStep("idle");
     setAddress({ nombre: "", direccion: "", ciudad: "", codigoPostal: "", pais: "España" });
     setCurrent(0);
+    setSize("");
+    setSizeMode("adulto");
+    setContact("");
+    setContactSent(false);
+    setCopied(false);
   }, [product?.url]);
+
+  const shareProduct = useCallback(async () => {
+    if (!product) return;
+    try {
+      await navigator.clipboard.writeText(`¡Mira esto! ${product.url}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }, [product]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["album-images", product?.url],
