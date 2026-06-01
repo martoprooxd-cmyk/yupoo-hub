@@ -169,11 +169,13 @@ function ShippingForm({
 function PayPalStep({
   product,
   address,
+  size,
   onSuccess,
   onBack,
 }: {
   product: Product;
   address: ShippingAddress;
+  size: string;
   onSuccess: () => void;
   onBack: () => void;
 }) {
@@ -198,11 +200,22 @@ function PayPalStep({
             intent: "CAPTURE",
             purchase_units: [
               {
-                description: product.title,
+                description: `${product.title} — Talla ${size}`,
                 amount: {
                   currency_code: "EUR",
                   value: price.toFixed(2),
+                  breakdown: {
+                    item_total: { currency_code: "EUR", value: price.toFixed(2) },
+                  },
                 },
+                items: [
+                  {
+                    name: product.title.slice(0, 120),
+                    description: `Talla ${size}`,
+                    quantity: "1",
+                    unit_amount: { currency_code: "EUR", value: price.toFixed(2) },
+                  },
+                ],
                 shipping: {
                   name: { full_name: address.nombre },
                   address: {
@@ -233,7 +246,7 @@ function PayPalStep({
     } catch {
       setSdkError(true);
     }
-  }, [product, address, price, onSuccess]);
+  }, [product, address, size, price, onSuccess]);
 
   useEffect(() => {
     // Si el SDK ya está cargado, renderizar directamente
