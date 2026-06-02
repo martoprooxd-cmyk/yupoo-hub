@@ -82,29 +82,5 @@
       }
     }
   },
-  "packages": {
-    "@cloudflare/vite-plugin": [
-      "@cloudflare/vite-plugin@1.25.5",
-      "",
-      {
-        "dependencies": {
-          "@cloudflare/unenv-preset": "^2.14.1",
-          "miniflare": "^3.20241126.0",
-          "unenv": "^2.0.0-rc.24",
-          "wrangler": "^3.60.0",
-          "ws": "^8.15.0"
-        },
-        "peerDependencies": {
-          "vite": "^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0"
-        }
-      },
-      "sha512-8/nR7Yz1z4WgYh8aqKvYvXZvCx9ZbMNMKoVQBMslY7SQPSMEQFVEFMxQdLg7SYTwWGFdOIRNuWuUqKwpLvb8mZQ=="
-    ],
-    "@cloudflare/workers-types": [
-      "@cloudflare/workers-types@4.20250101.0",
-      "",
-      {},
-      "sha512-8/nR7Yz1z4WgYh8aqKvYvXZvCx9ZbMNMKoVQBMslY7SQPSMEQFVEFMxQdLg7SYTwWGFdOIRNuWuUqKwpLvb8mZQ=="
-    ]
-  }
+  "packages": {}
 }
