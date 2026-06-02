@@ -82,5 +82,19 @@
       }
     }
   },
-  "packages": {}
+  "packages": {
+    "@babel/code-frame": ["@babel/code-frame@7.27.1", "", {}, "sha512-qgKw0RhzFD6W6cJczLLnTJlmMYZ8qJ4LHxnYlXFMvIFhPYIvLFRLtJ+Dpi9WXXhK/qnLWlZZT5pXJ0jlSWUKpw=="],
+    "@babel/generator": ["@babel/generator@7.27.1", "", {}, "sha512-e3pHTpFxW1a0rEgqqqy+PqPxLv3vY1gSfFPKXKj0VPzj3rRBiV+dxAG2SWi2B5CHpFJKVEKcaJ6wF5ZbKl9Ow=="],
+    "@babel/helper-function-name": ["@babel/helper-function-name@7.25.9", "", {}, "sha512-pjhtseFEHbQ3vLmVRBCG8Y3i8ZvQGM2j2L8+hHPJBuXfUb0tVJHgEd0C7qXvvuKtpZHPr9r+RNVtPvSi9FaAw=="],
+    "@babel/helper-hoist-variables": ["@babel/helper-hoist-variables@7.25.9", "", {}, "sha512-8QV+3lLtDQ2kYeAXBWG7EkHrqLgMJgn4d9Z5N+qf4wfMfqVKGFqAKB4S0cWe1aRPL7wSreZqiYwKVXXYfCJkw=="],
+    "@babel/helper-split-export-declaration": ["@babel/helper-split-export-declaration@7.25.9", "", {}, "sha512-rFFe5HJV+hJx35P/Yw7VrKLm9YJ3t4saBczRWHR5BrQ7j5MR7xyUAX4LWEhLzCNhSJQ6TDMfrI8GrVYmJWGlg=="],
+    "@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@7.25.9", "", {}, "sha512-4COwW7pXe5zDQsIxvxP/DFuI1CiRVP+bEVFUmYJxIyUNF3L8rILnxbvmrDfXKqAVrwsHfDnlI8L9eYJjjP+w=="],
+    "@babel/helpers": ["@babel/helpers@7.27.1", "", {}, "sha512-2kmzrRO4x+bVjD0A4ACLBV4Q/0Km1/1g1CIwmPMhp9OLIVhMlBw2G0P/u3w1hqvmUHiS4L5bm5yZuSZ5xJnAg=="],
+    "@babel/parser": ["@babel/parser@7.27.1", "", {}, "sha512-KtKLjkAh2YHmHR+zxr7t4CQOPz9OGVqF7r4RbqPPzRa3eYZ4nxHZqWu4mfVU8fSDykfBuVfTp2rg8r6ZJ7mVg=="],
+    "@babel/template": ["@babel/template@7.25.9", "", {}, "sha512-9Dl6IsyVc6bNx+5/+nqI0n7DaTS7w0cHR+VyxXUV2jLvK6rJlNMsCFg4zAp1IvL2W1oBEMsJsL4R/VnCsJMfQ=="],
+    "@babel/traverse": ["@babel/traverse@7.27.1", "", {}, "sha512-Gd7vu8hSp01yqJ5n0Z3Y+nfcFVEfQS5GyZmJyLELkNyNiXN2e6x7jU8YsQjhSWEVnzT6Uhyaw8pYkwBrxKvMw=="],
+    "@babel/types": ["@babel/types@7.27.1", "", {}, "sha512-eGD8XM3L4pBwcMvQwxFQzfbyO4ryDY3sH7dFhqEBMZ8xYAGD8lASHDPKnFOx2G1QKLZnDKr+KmYDKNVQEzFqw=="],
+    "@cloudflare/vite-plugin": ["@cloudflare/vite-plugin@1.25.5", "", {}, "sha512-8/nR7Yz1z4WgYh8aqKvYvXZvCx9ZbMNMKoVQBMslY7SQPSMEQFVEFMxQdLg7SYTwWGFdOIRNuWuUqKwpLvb8mZQ=="],
+    "@cloudflare/workers-types": ["@cloudflare/workers-types@4.20250101.0", "", {}, "sha512-8/nR7Yz1z4WgYh8aqKvYvXZvCx9ZbMNMKoVQBMslY7SQPSMEQFVEFMxQdLg7SYTwWGFdOIRNuWuUqKwpLvb8mZQ=="]
+  }
 }
