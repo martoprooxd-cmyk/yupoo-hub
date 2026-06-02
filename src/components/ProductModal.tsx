@@ -252,6 +252,11 @@ function PayPalStep({
   }, [product, address, size, price, onSuccess]);
 
   useEffect(() => {
+    // Guard: si no hay Client ID configurado, mostrar aviso en lugar de cargar el SDK
+    if (!PAYPAL_CLIENT_ID || PAYPAL_CLIENT_ID === "TU_PAYPAL_CLIENT_ID_AQUI") {
+      setSdkError(true);
+      return;
+    }
     // Si el SDK ya está cargado, renderizar directamente
     if (window.paypal) {
       renderButtons();
