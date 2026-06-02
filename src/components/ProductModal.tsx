@@ -301,9 +301,12 @@ function PayPalStep({
       </div>
 
       {sdkError ? (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-center text-xs text-destructive">
-          Error al cargar PayPal. Comprueba tu conexión e inténtalo de nuevo.
-        </p>
+        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-center text-xs">
+          <p className="font-semibold">PayPal aún no configurado</p>
+          <p className="text-muted-foreground">
+            Escríbenos por WhatsApp o email para confirmar tu reserva y te enviamos el enlace de pago.
+          </p>
+        </div>
       ) : (
         <div ref={containerRef} className="min-h-[50px]">
           <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
