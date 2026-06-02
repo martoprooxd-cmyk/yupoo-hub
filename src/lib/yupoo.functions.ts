@@ -207,12 +207,27 @@ function dedupeProducts(products: Product[]): Product[] {
 const CACHE_KEY = "yupoo-products-v1";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
 
+/**
+ * Obtiene los bindings de Cloudflare de forma segura.
+ * Solo disponible en Workers/Pages, retorna null en desarrollo local.
+ */
+function getCloudflareBindings(): { YUPOO_KV: KVNamespace | null } {
+  if (typeof globalThis === "undefined") {
+    return { YUPOO_KV: null };
+  }
+  
+  const kv = (globalThis as any).YUPOO_KV ?? null;
+  return { YUPOO_KV: kv };
+}
+
 async function getFromKV(): Promise<{ products: Product[]; errors: string[]; fetchedAt: string } | null> {
   try {
-    // @ts-expect-error YUPOO_KV es el binding de Cloudflare KV
-    const kv = globalThis.YUPOO_KV;
-    if (!kv) return null;
-    const raw = await kv.get(CACHE_KEY);
+    const { YUPOO_KV } = getCloudflareBindings();
+    if (!YUPOO_KV) {
+      console.debug("Cloudflare KV not available (dev environment?)");
+      return null;
+    }
+    const raw = await YUPOO_KV.get(CACHE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
     // Comprobar si el caché sigue fresco
@@ -220,18 +235,21 @@ async function getFromKV(): Promise<{ products: Product[]; errors: string[]; fet
       return data;
     }
     return null;
-  } catch {
+  } catch (e) {
+    console.error("KV read error:", e);
     return null;
   }
 }
 
 async function saveToKV(data: { products: Product[]; errors: string[]; fetchedAt: string }): Promise<void> {
   try {
-    // @ts-expect-error YUPOO_KV es el binding de Cloudflare KV
-    const kv = globalThis.YUPOO_KV;
-    if (!kv) return;
+    const { YUPOO_KV } = getCloudflareBindings();
+    if (!YUPOO_KV) {
+      console.debug("Cloudflare KV not available (dev environment?)");
+      return;
+    }
     // TTL de 2 horas en KV (por si el cron falla, los datos siguen disponibles)
-    await kv.put(CACHE_KEY, JSON.stringify(data), { expirationTtl: 7200 });
+    await YUPOO_KV.put(CACHE_KEY, JSON.stringify(data), { expirationTtl: 7200 });
   } catch (e) {
     console.error("KV write error:", e);
   }
