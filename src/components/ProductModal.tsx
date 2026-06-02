@@ -463,7 +463,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                             loading="lazy"
                             className="max-h-full max-w-full object-contain"
                             onError={(e) => {
-                              (e.target as HTMLImageElement).style.opacity = "0.2";
+                              e.currentTarget.style.opacity = "0.2";
                             }}
                           />
                         </div>
