@@ -252,6 +252,11 @@ function PayPalStep({
   }, [product, address, size, price, onSuccess]);
 
   useEffect(() => {
+    // Guard: si no hay Client ID configurado, mostrar aviso en lugar de cargar el SDK
+    if (!PAYPAL_CLIENT_ID || PAYPAL_CLIENT_ID === "TU_PAYPAL_CLIENT_ID_AQUI") {
+      setSdkError(true);
+      return;
+    }
     // Si el SDK ya está cargado, renderizar directamente
     if (window.paypal) {
       renderButtons();
@@ -296,9 +301,12 @@ function PayPalStep({
       </div>
 
       {sdkError ? (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-center text-xs text-destructive">
-          Error al cargar PayPal. Comprueba tu conexión e inténtalo de nuevo.
-        </p>
+        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-center text-xs">
+          <p className="font-semibold">PayPal aún no configurado</p>
+          <p className="text-muted-foreground">
+            Escríbenos por WhatsApp o email para confirmar tu reserva y te enviamos el enlace de pago.
+          </p>
+        </div>
       ) : (
         <div ref={containerRef} className="min-h-[50px]">
           <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
@@ -463,7 +471,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                             loading="lazy"
                             className="max-h-full max-w-full object-contain"
                             onError={(e) => {
-                              (e.target as HTMLImageElement).style.opacity = "0.2";
+                              e.currentTarget.style.opacity = "0.2";
                             }}
                           />
                         </div>
