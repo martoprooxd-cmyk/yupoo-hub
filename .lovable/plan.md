@@ -1,38 +1,19 @@
-## Objetivo
+## Diagnóstico
 
-Permitirte desplegar la app a **tu propia cuenta de Cloudflare** con `wrangler deploy`, sin romper el deploy actual de Lovable.
+El build sí funciona, pero **no emite `dist/_worker.js/index.js`**. Mira las últimas líneas del log:
 
-## Situación actual
-
-- `wrangler.jsonc` ya apunta a `src/server.ts` y declara el binding KV `YUPOO_KV` (id `e990d807bd2d4911aba9cd9d6e0cba8e`).
-- `@cloudflare/vite-plugin` está instalado y genera el bundle del Worker dentro de `dist/` al hacer `vite build`.
-- Falta: scripts npm para build + deploy con wrangler, declarar `wrangler` como devDependency, y registrar el secret `FIRECRAWL_API_KEY` en Cloudflare (no se sube en el bundle).
-
-## Cambios
-
-### 1. `package.json` — añadir scripts y dependencia
-
-```jsonc
-"scripts": {
-  "dev": "vite dev",
-  "build": "vite build",
-  "build:dev": "vite build --mode development",
-  "preview": "vite preview",
-  "lint": "eslint .",
-  "format": "prettier --write .",
-  "cf:deploy": "vite build && wrangler deploy",
-  "cf:dev": "vite build && wrangler dev",
-  "cf:tail": "wrangler tail"
-},
-"devDependencies": {
-  ...
-  "wrangler": "^3.90.0"
-}
+```
+dist/client/...           (assets estáticos)
+dist/server/server.js     (3.87 kB) ← este es el Worker SSR
 ```
 
-### 2. `wrangler.jsonc` — apuntar al bundle generado
+El `@cloudflare/vite-plugin` no se activa en este build (el preset de Lovable lo agrupa con "nitro deploy plugin", que loguea `No Lovable context detected — skipping`). En su lugar, TanStack Start emite el server bundle en `dist/server/server.js`.
 
-`@cloudflare/vite-plugin` emite el Worker en `dist/_worker.js/index.js` con sus assets estáticos en `dist/client`. Ajustar:
+`wrangler.jsonc` apuntaba a la ruta equivocada → error `entry-point file at "dist/_worker.js/index.js" was not found`.
+
+## Fix
+
+Apuntar `wrangler.jsonc` al archivo real:
 
 ```jsonc
 {
@@ -40,7 +21,7 @@ Permitirte desplegar la app a **tu propia cuenta de Cloudflare** con `wrangler d
   "name": "yupoo-hub",
   "compatibility_date": "2025-09-24",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "./dist/_worker.js/index.js",
+  "main": "./dist/server/server.js",
   "assets": { "directory": "./dist/client", "binding": "ASSETS" },
   "kv_namespaces": [
     { "binding": "YUPOO_KV", "id": "e990d807bd2d4911aba9cd9d6e0cba8e" }
@@ -49,27 +30,26 @@ Permitirte desplegar la app a **tu propia cuenta de Cloudflare** con `wrangler d
 }
 ```
 
-(Si tras el primer `vite build` la ruta real del Worker es otra, te la ajusto — lo verifico mirando `dist/` antes de cerrar.)
+Y actualizar wrangler a la v4 (el propio log lo pide):
 
-### 3. Documentar el flujo (README breve o instrucciones en chat)
-
-Pasos que tú tienes que ejecutar una vez en tu máquina:
-
-```bash
-bun install
-bunx wrangler login                                  # abre el navegador
-bunx wrangler secret put FIRECRAWL_API_KEY           # te pide la clave
-bun run cf:deploy
+```jsonc
+// package.json
+"devDependencies": {
+  ...
+  "wrangler": "^4.0.0"
+}
 ```
 
-A partir de ahí, cada `bun run cf:deploy` republica a `https://yupoo-hub.<tu-subdominio>.workers.dev`.
+## Archivos tocados
 
-## Lo que NO toco
+- `wrangler.jsonc` — cambiar `main` a `./dist/server/server.js`.
+- `package.json` — subir `wrangler` a `^4.0.0`.
 
-- `src/server.ts`, `src/lib/yupoo.functions.ts`, `vite.config.ts` — ya son compatibles con Workers.
-- El deploy de Lovable sigue funcionando igual; este flujo es paralelo.
-- El binding KV ya está bien — el mismo id se usa en ambos deploys.
+## Lo que NO hago
+
+- No toco `vite.config.ts` ni intento forzar el plugin de Cloudflare — el bundle que TanStack Start ya emite (`dist/server/server.js`) es un Worker válido y monta `src/server.ts` como entry.
+- No cambio `src/server.ts`.
 
 ## Riesgos
 
-- Si tu cuenta de Cloudflare no es la dueña del KV `e990d807bd2d4911aba9cd9d6e0cba8e`, `wrangler deploy` fallará y tendrás que crear un KV nuevo (`wrangler kv namespace create YUPOO_KV`) y pegar el id devuelto en `wrangler.jsonc`.
+- Si tras `wrangler deploy` falla con un error sobre `nodejs_compat` o módulos no resueltos, significa que el bundle de TanStack Start necesita el plugin de Cloudflare activo. En ese caso el siguiente paso es activar el plugin manualmente en `vite.config.ts`, pero es mejor probar primero esta versión más simple.
