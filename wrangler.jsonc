@@ -3,7 +3,7 @@
   "name": "yupoo-hub",
   "compatibility_date": "2025-09-24",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "./dist/_worker.js/index.js",
+  "main": "./dist/server/server.js",
   "assets": { "directory": "./dist/client", "binding": "ASSETS" },
   "kv_namespaces": [
     { "binding": "YUPOO_KV", "id": "e990d807bd2d4911aba9cd9d6e0cba8e" }
