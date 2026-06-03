@@ -12,7 +12,10 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "cf:deploy": "vite build && wrangler deploy",
+    "cf:dev": "vite build && wrangler dev",
+    "cf:tail": "wrangler tail"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",

@@ -1,32 +1,75 @@
-## Problema
+## Objetivo
 
-El deploy falla y el bundler avisa:
+Permitirte desplegar la app a **tu propia cuenta de Cloudflare** con `wrangler deploy`, sin romper el deploy actual de Lovable.
 
-```
-Ignoring this import because "src/lib/error-capture.ts" was marked as having no side effects
-  src/server.ts:1: import "./lib/error-capture";
-"sideEffects" is false in the enclosing "package.json"
-```
+## Situación actual
 
-`package.json` tiene `"sideEffects": false`, así que esbuild elimina el import bare de `error-capture.ts`. Ese módulo registra listeners globales (`error`, `unhandledrejection`) en su top-level — al ser eliminado, el server pierde la captura de errores que `server.ts` necesita, y el bundle del Worker termina rompiendo el deploy.
+- `wrangler.jsonc` ya apunta a `src/server.ts` y declara el binding KV `YUPOO_KV` (id `e990d807bd2d4911aba9cd9d6e0cba8e`).
+- `@cloudflare/vite-plugin` está instalado y genera el bundle del Worker dentro de `dist/` al hacer `vite build`.
+- Falta: scripts npm para build + deploy con wrangler, declarar `wrangler` como devDependency, y registrar el secret `FIRECRAWL_API_KEY` en Cloudflare (no se sube en el bundle).
 
-## Fix
+## Cambios
 
-Cambiar `package.json`:
+### 1. `package.json` — añadir scripts y dependencia
 
 ```jsonc
-"sideEffects": ["src/lib/error-capture.ts", "**/*.css"]
+"scripts": {
+  "dev": "vite dev",
+  "build": "vite build",
+  "build:dev": "vite build --mode development",
+  "preview": "vite preview",
+  "lint": "eslint .",
+  "format": "prettier --write .",
+  "cf:deploy": "vite build && wrangler deploy",
+  "cf:dev": "vite build && wrangler dev",
+  "cf:tail": "wrangler tail"
+},
+"devDependencies": {
+  ...
+  "wrangler": "^3.90.0"
+}
 ```
 
-Así Vite/esbuild siguen tree-shakeando el resto del código, pero conservan los efectos secundarios de:
-- `error-capture.ts` (los listeners globales que `server.ts` necesita)
-- los `.css` (Tailwind, `styles.css`)
+### 2. `wrangler.jsonc` — apuntar al bundle generado
 
-## Archivos tocados
+`@cloudflare/vite-plugin` emite el Worker en `dist/_worker.js/index.js` con sus assets estáticos en `dist/client`. Ajustar:
 
-- `package.json` — cambiar `sideEffects: false` por el array de arriba.
+```jsonc
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "yupoo-hub",
+  "compatibility_date": "2025-09-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "./dist/_worker.js/index.js",
+  "assets": { "directory": "./dist/client", "binding": "ASSETS" },
+  "kv_namespaces": [
+    { "binding": "YUPOO_KV", "id": "e990d807bd2d4911aba9cd9d6e0cba8e" }
+  ],
+  "observability": { "enabled": true }
+}
+```
 
-## Lo que NO hago
+(Si tras el primer `vite build` la ruta real del Worker es otra, te la ajusto — lo verifico mirando `dist/` antes de cerrar.)
 
-- Tocar `src/server.ts` ni `error-capture.ts` — la lógica es correcta, sólo necesitan no ser eliminados por tree-shaking.
-- Tocar `wrangler.jsonc` ni el resto de la app.
+### 3. Documentar el flujo (README breve o instrucciones en chat)
+
+Pasos que tú tienes que ejecutar una vez en tu máquina:
+
+```bash
+bun install
+bunx wrangler login                                  # abre el navegador
+bunx wrangler secret put FIRECRAWL_API_KEY           # te pide la clave
+bun run cf:deploy
+```
+
+A partir de ahí, cada `bun run cf:deploy` republica a `https://yupoo-hub.<tu-subdominio>.workers.dev`.
+
+## Lo que NO toco
+
+- `src/server.ts`, `src/lib/yupoo.functions.ts`, `vite.config.ts` — ya son compatibles con Workers.
+- El deploy de Lovable sigue funcionando igual; este flujo es paralelo.
+- El binding KV ya está bien — el mismo id se usa en ambos deploys.
+
+## Riesgos
+
+- Si tu cuenta de Cloudflare no es la dueña del KV `e990d807bd2d4911aba9cd9d6e0cba8e`, `wrangler deploy` fallará y tendrás que crear un KV nuevo (`wrangler kv namespace create YUPOO_KV`) y pegar el id devuelto en `wrangler.jsonc`.
