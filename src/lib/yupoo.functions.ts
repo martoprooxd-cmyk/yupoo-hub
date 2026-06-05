@@ -74,18 +74,22 @@ function imageQualityScore(src: string): number {
   return 3;
 }
 
-function parseAlbums(html: string, base: string): { title: string; url: string; image: string }[] {
-  const items: { title: string; url: string; image: string }[] = [];
+function parseAlbums(html: string, base: string): { title: string; url: string; image: string; photoCount: number | null }[] {
+  const items: { title: string; url: string; image: string; photoCount: number | null }[] = [];
   const seen = new Set<string>();
 
+  // Capture anchor plus a tail of surrounding siblings — the photo-count badge
+  // is often rendered outside the <a>.
   const blockRegex =
-    /<a\b[^>]*class="[^"]*\balbum__main\b[^"]*"[^>]*href="([^"]+)"[^>]*?(?:title="([^"]*)")?[^>]*>([\s\S]*?)<\/a>/gi;
+    /<a\b[^>]*class="[^"]*\balbum__main\b[^"]*"[^>]*href="([^"]+)"[^>]*?(?:title="([^"]*)")?[^>]*>([\s\S]*?)<\/a>([\s\S]{0,800})/gi;
 
   let m: RegExpExecArray | null;
   while ((m = blockRegex.exec(html)) !== null) {
     const href = decodeEntities(m[1]);
     let title = decodeEntities((m[2] || "").trim());
     const inner = m[3];
+    const tail = m[4] || "";
+    const fullBlock = inner + tail;
 
     const imgMatch =
       inner.match(/data-src="([^"]+)"/i) ||
@@ -108,15 +112,73 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
     }
     if (!title) title = "Álbum";
 
+    let photoCount: number | null = null;
+    const countMatch =
+      fullBlock.match(/album__main_pic_count[^>]*>\s*(\d+)/i) ||
+      fullBlock.match(/showalbumphotos[^>]*>\s*(\d+)/i) ||
+      fullBlock.match(/>\s*(\d+)\s*(?:photos?|fotos?|pics?|张|張)\b/i);
+    if (countMatch) {
+      const n = parseInt(countMatch[1], 10);
+      if (Number.isFinite(n)) photoCount = n;
+    }
+
     const url = href.startsWith("http") ? href : base + href;
     const urlKey = url.split("?")[0];
     if (seen.has(urlKey)) continue;
     seen.add(urlKey);
 
-    items.push({ title, url, image });
+    items.push({ title, url, image, photoCount });
   }
 
   return items;
+}
+
+// ─── FILTROS DE NEGOCIO ───────────────────────────────────────────────────────
+
+const SNEAKER_KEYWORDS = /\b(jordan|aj\s?\d|dunk|sb|air\s?max|air\s?force|af1|yeezy|new\s?balance|nb\s?\d|asics|samba|gazelle|campus|ultra\s?boost|nmd|foamposite|kobe|lebron|kd|curry|vans|converse|puma\s?suede|mizuno|salomon|travis)\b/i;
+
+const FOOTBALL_JACKET_KEYWORDS = /\b(jacket|chaqueta|abrigo|anorak|windbreaker|cortavientos|bomber|varsity|all[\s-]?weather|anthem)\b/i;
+
+const FOOTBALL_ALLOWED_KEYWORDS = new RegExp(
+  [
+    "arsenal","chelsea","liverpool","man\\s?utd","manchester\\s?united","man\\s?city","manchester\\s?city","tottenham","spurs","newcastle","west\\s?ham","aston\\s?villa","brighton","crystal\\s?palace","everton","fulham","wolves","brentford","leeds","leicester","nottingham","forest","bournemouth","sheffield","burnley","luton",
+    "real\\s?madrid","barcelona","barca","atletico","atleti","sevilla","valencia","villarreal","betis","athletic","bilbao","real\\s?sociedad","getafe","osasuna","celta","espanyol","mallorca","girona","rayo","cadiz","granada","las\\s?palmas","alaves","almeria",
+    "juventus","juve","ac\\s?milan","milan","inter","napoli","roma","lazio","fiorentina","atalanta","torino","bologna","udinese","sassuolo","genoa","verona","lecce","monza","salernitana","cagliari","empoli","frosinone",
+    "bayern","dortmund","bvb","leipzig","leverkusen","frankfurt","wolfsburg","gladbach","hoffenheim","stuttgart","freiburg","bremen","augsburg","mainz","koln","union\\s?berlin","bochum","heidenheim","darmstadt",
+    "psg","paris\\s?saint","paris\\s?sg",
+    "mundial","world\\s?cup","copa\\s?del\\s?mundo","qatar\\s?2022","2026",
+    "argentina","brasil","brazil","francia","france","espana","spain","alemania","germany","portugal","inglaterra","england","italia","italy","mexico","japan","japon","korea","corea","croatia","croacia","uruguay","colombia","ecuador","peru","chile","paraguay","usa","canada","marruecos","morocco","senegal","ghana","camerun","nigeria","australia","dinamarca","suiza","belgica","holanda","polonia","serbia","gales","ucrania",
+  ].join("|"),
+  "i",
+);
+
+function applyBusinessFilters(
+  raw: { title: string; url: string; image: string; photoCount: number | null }[],
+  catalogId: string,
+  catalogCategory: Category,
+): { title: string; url: string; image: string; category: Category }[] {
+  const out: { title: string; url: string; image: string; category: Category }[] = [];
+  for (const a of raw) {
+    // d) Descartar álbumes con <= 1 foto (sólo si hemos podido detectar el contador).
+    if (a.photoCount !== null && a.photoCount <= 1) continue;
+
+    const key = normalizeTitleKey(a.title);
+
+    // b) Reclasificar sneakers que aparecen en catálogos de ropa.
+    let category: Category = catalogCategory;
+    if ((catalogId === "pandaclothes" || catalogId === "wu769809876") && SNEAKER_KEYWORDS.test(key)) {
+      category = "zapatillas";
+    }
+
+    // c) Catálogo de fútbol: sólo 4 grandes + PSG + Mundial, sin chaquetas.
+    if (catalogId === "panshirt") {
+      if (FOOTBALL_JACKET_KEYWORDS.test(key)) continue;
+      if (!FOOTBALL_ALLOWED_KEYWORDS.test(key)) continue;
+    }
+
+    out.push({ title: a.title, url: a.url, image: a.image, category });
+  }
+  return out;
 }
 
 async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]> {
