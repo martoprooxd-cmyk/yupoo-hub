@@ -42,14 +42,34 @@ export const Route = createFileRoute("/api/public/image")({
           return badRequest("Image host not allowed", 403);
         }
 
-        const upstream = await fetch(url.toString(), { headers: IMAGE_HEADERS });
+        let upstream: Response;
+        try {
+          upstream = await fetch(url.toString(), {
+            headers: IMAGE_HEADERS,
+            signal: AbortSignal.timeout(8000),
+          });
+        } catch (err) {
+          console.error("[image-proxy] fetch failed", url.toString(), err);
+          return new Response(null, {
+            status: 204,
+            headers: { "Cache-Control": "no-store" },
+          });
+        }
+
         if (!upstream.ok || !upstream.body) {
-          return badRequest("Image unavailable", upstream.status || 502);
+          console.error("[image-proxy] upstream not ok", url.toString(), upstream.status);
+          return new Response(null, {
+            status: 204,
+            headers: { "Cache-Control": "no-store" },
+          });
         }
 
         const contentType = upstream.headers.get("content-type") ?? "image/jpeg";
         if (!contentType.startsWith("image/")) {
-          return badRequest("URL is not an image", 415);
+          return new Response(null, {
+            status: 204,
+            headers: { "Cache-Control": "no-store" },
+          });
         }
 
         return new Response(upstream.body, {
