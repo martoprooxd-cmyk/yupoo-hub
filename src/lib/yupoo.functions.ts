@@ -211,15 +211,16 @@ async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]>
 
   const base = catalog.url.replace(/\/$/, "");
   const albums = parseAlbums(html, base);
+  const filtered = applyBusinessFilters(albums, catalog.id, catalog.category);
 
-  return albums.slice(0, 80).map((a, i) => ({
+  return filtered.slice(0, 80).map((a, i) => ({
     id: `${catalog.id}-${i}-${a.url.slice(-20)}`,
     title: a.title,
     url: a.url,
     image: a.image,
     catalog: catalog.id,
     catalogName: catalog.name,
-    category: catalog.category,
+    category: a.category,
   }));
 }
 
