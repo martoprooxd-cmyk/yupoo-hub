@@ -149,7 +149,14 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
 
 // ─── FILTROS DE NEGOCIO ───────────────────────────────────────────────────────
 
-const SNEAKER_KEYWORDS = /\b(jordan|aj\s?\d|dunk|sb|air\s?max|air\s?force|af1|af\s?1|yeezy|new\s?balance|nb\s?\d+|asics|samba|gazelle|campus|spezial|forum|ultra\s?boost|nmd|foamposite|kobe|lebron|kd|curry|vans|converse|puma\s?suede|mizuno|salomon|travis|sneaker|sneakers|shoe|shoes|zapatilla|runner|trainer|2002r|1906r|9060|327|550|574|990|992|993|m990|gel\s?kayano|gel\s?nyc|gel\s?lyte|kayano)\b/i;
+// Modelos/marcas claramente de zapatilla — gana sobre keywords de ropa.
+const STRONG_SNEAKER_KEYWORDS = /\b(jordan|aj\s?\d|dunk|sb\s?dunk|air\s?max|air\s?force|af1|af\s?1|yeezy|new\s?balance|nb\s?\d+|asics|samba|gazelle|campus|spezial|forum|ultra\s?boost|nmd|foamposite|kobe|lebron|kd\s?\d|curry|vans|converse|puma\s?suede|mizuno|salomon|travis|2002r|1906r|9060|327|550|574|990|992|993|m990|gel\s?kayano|gel\s?nyc|gel\s?lyte|kayano|vapormax|pegasus|cortez|blazer|terrex|ozweego|tn\s?plus|triple\s?s|speed\s?trainer|track\s?\d|cloudbust|monolith|balenciaga\s?(track|triple|speed|runner))\b/i;
+
+// Pistas genéricas de calzado — útil en `pandaclothes`/`wu769809876`.
+const SOFT_SNEAKER_KEYWORDS = /\b(sneaker|sneakers|shoe|shoes|zapatilla|zapatillas|runner|trainer|mule|slide|slipper|boot|boots|bota|botas|botin|botines|clog|loafer|mocasin|cleats|nike|adidas|puma|reebok|under\s?armour)\b/i;
+
+// Si el título parece ropa, mantenemos en ropa salvo que haya STRONG sneaker.
+const CLOTHING_KEYWORDS = /\b(hoodie|sudadera|t[-\s]?shirt|tshirt|camiseta|polo|jersey|sweater|sweatshirt|pants|pantalon|jeans|denim|shorts|bermuda|falda|vestido|dress|skirt|abrigo|coat|cargo|tracksuit|chandal|jacket|chaqueta)\b/i;
 
 const FOOTBALL_JACKET_KEYWORDS = /\b(jacket|chaqueta|abrigo|anorak|windbreaker|cortavientos|bomber|varsity|all[\s-]?weather|anthem|training\s?top|chandal|tracksuit)\b/i;
 
@@ -182,8 +189,15 @@ function applyBusinessFilters(
 
     // b) Reclasificar sneakers que aparecen en catálogos de ropa.
     let category: Category = catalogCategory;
-    if ((catalogId === "pandaclothes" || catalogId === "wu769809876") && SNEAKER_KEYWORDS.test(haystack)) {
-      category = "zapatillas";
+    if (catalogId === "pandaclothes" || catalogId === "wu769809876") {
+      const strong = STRONG_SNEAKER_KEYWORDS.test(haystack);
+      const soft = SOFT_SNEAKER_KEYWORDS.test(haystack);
+      const clothing = CLOTHING_KEYWORDS.test(key);
+      if (strong || (soft && !clothing)) category = "zapatillas";
+    }
+    // Inverso: si el catálogo es de zapatillas pero el título es claramente ropa.
+    if (catalogId === "pandashoesx" && CLOTHING_KEYWORDS.test(key) && !STRONG_SNEAKER_KEYWORDS.test(haystack) && !SOFT_SNEAKER_KEYWORDS.test(haystack)) {
+      category = "ropa";
     }
 
     // c) Catálogo de fútbol: sólo 4 grandes + PSG + Mundial, sin chaquetas.
@@ -200,39 +214,64 @@ function applyBusinessFilters(
   return out;
 }
 
+const PAGES_PER_CATALOG = 5;
+
+async function fetchPageHtml(apiKey: string, url: string): Promise<string | null> {
+  try {
+    const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        formats: ["html"],
+        onlyMainContent: false,
+        waitFor: 1500,
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      console.error(`Firecrawl ${url} ${res.status}: ${txt.slice(0, 160)}`);
+      return null;
+    }
+    const json = (await res.json()) as { data?: { html?: string } };
+    return json.data?.html ?? null;
+  } catch (e) {
+    console.error(`Firecrawl fetch failed ${url}:`, e);
+    return null;
+  }
+}
+
 async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
   if (!apiKey) throw new Error("FIRECRAWL_API_KEY not configured");
 
-  const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      url: catalog.url,
-      formats: ["html"],
-      onlyMainContent: false,
-      waitFor: 1500,
-    }),
-  });
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    console.error(`Firecrawl ${catalog.id} ${res.status}: ${txt.slice(0, 200)}`);
-    return [];
+  const base = catalog.url.replace(/\/$/, "");
+  const pageUrls: string[] = [];
+  for (let p = 1; p <= PAGES_PER_CATALOG; p++) {
+    pageUrls.push(p === 1 ? catalog.url : `${base}/?tab=gallery&page=${p}`);
   }
 
-  const json = (await res.json()) as { data?: { html?: string } };
-  const html = json.data?.html;
-  if (!html) return [];
+  const htmls = await Promise.all(pageUrls.map((u) => fetchPageHtml(apiKey, u)));
 
-  const base = catalog.url.replace(/\/$/, "");
-  const albums = parseAlbums(html, base);
-  const filtered = applyBusinessFilters(albums, catalog.id, catalog.category);
+  const seenUrl = new Set<string>();
+  const allAlbums: { title: string; url: string; image: string; photoCount: number | null }[] = [];
+  for (const html of htmls) {
+    if (!html) continue;
+    const page = parseAlbums(html, base);
+    for (const a of page) {
+      const k = a.url.split("?")[0];
+      if (seenUrl.has(k)) continue;
+      seenUrl.add(k);
+      allAlbums.push(a);
+    }
+  }
 
-  return filtered.slice(0, 80).map((a, i) => ({
+  const filtered = applyBusinessFilters(allAlbums, catalog.id, catalog.category);
+
+  return filtered.slice(0, 400).map((a, i) => ({
     id: `${catalog.id}-${i}-${a.url.slice(-20)}`,
     title: a.title,
     url: a.url,
@@ -286,7 +325,7 @@ function dedupeProducts(products: Product[]): Product[] {
 // Lee los productos del KV si están frescos (menos de 1 hora),
 // si no hace el scraping completo y los guarda en KV.
 
-const CACHE_KEY = "yupoo-products-v3";
+const CACHE_KEY = "yupoo-products-v4";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
 
 /**
