@@ -325,7 +325,7 @@ function dedupeProducts(products: Product[]): Product[] {
 // Lee los productos del KV si están frescos (menos de 1 hora),
 // si no hace el scraping completo y los guarda en KV.
 
-const CACHE_KEY = "yupoo-products-v3";
+const CACHE_KEY = "yupoo-products-v4";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
 
 /**
