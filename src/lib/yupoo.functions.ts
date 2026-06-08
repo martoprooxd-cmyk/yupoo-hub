@@ -78,18 +78,21 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
   const items: { title: string; url: string; image: string; photoCount: number | null }[] = [];
   const seen = new Set<string>();
 
-  // Capture anchor plus a tail of surrounding siblings — the photo-count badge
-  // is often rendered outside the <a>.
+  // Capture the whole anchor tag (with all attributes) plus inner content plus
+  // a tail of siblings — title/photo-count are often outside the <a>.
   const blockRegex =
-    /<a\b[^>]*class="[^"]*\balbum__main\b[^"]*"[^>]*href="([^"]+)"[^>]*?(?:title="([^"]*)")?[^>]*>([\s\S]*?)<\/a>([\s\S]{0,800})/gi;
+    /<a\b([^>]*class="[^"]*\balbum__main\b[^"]*"[^>]*)>([\s\S]*?)<\/a>([\s\S]{0,800})/gi;
 
   let m: RegExpExecArray | null;
   while ((m = blockRegex.exec(html)) !== null) {
-    const href = decodeEntities(m[1]);
-    let title = decodeEntities((m[2] || "").trim());
-    const inner = m[3];
-    const tail = m[4] || "";
-    const fullBlock = inner + tail;
+    const attrs = m[1];
+    const inner = m[2];
+    const tail = m[3] || "";
+    const fullBlock = attrs + " " + inner + " " + tail;
+
+    const hrefMatch = attrs.match(/\bhref="([^"]+)"/i);
+    if (!hrefMatch) continue;
+    const href = decodeEntities(hrefMatch[1]);
 
     const imgMatch =
       inner.match(/data-src="([^"]+)"/i) ||
@@ -102,13 +105,24 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
     if (image.startsWith("/")) image = base + image;
     if (/im_photo_album|avatar|logo|qrcode|favicon|sprite|loading_icon/i.test(image)) continue;
 
-    if (!title) {
-      const titleMatch =
-        inner.match(/album__main_title[^>]*>\s*([^<]+?)\s*</i) ||
-        inner.match(/\btitle="([^"]+)"/i) ||
-        inner.match(/<h[1-6][^>]*>\s*([^<]+?)\s*<\/h[1-6]>/i) ||
-        inner.match(/<span[^>]*>\s*([^<]+?)\s*<\/span>/i);
-      if (titleMatch) title = decodeEntities(titleMatch[1].trim());
+    // Title: try every plausible source.
+    let title = "";
+    const titleSources: (RegExpMatchArray | null)[] = [
+      attrs.match(/\btitle="([^"]+)"/i),
+      attrs.match(/\bdata-title="([^"]+)"/i),
+      inner.match(/album__main_title[^>]*>\s*([^<]+?)\s*</i),
+      inner.match(/class="[^"]*\btitle\b[^"]*"[^>]*>\s*([^<]+?)\s*</i),
+      inner.match(/<img[^>]*\salt="([^"]+)"/i),
+      tail.match(/album__main_title[^>]*>\s*([^<]+?)\s*</i),
+      tail.match(/class="[^"]*\btitle\b[^"]*"[^>]*>\s*([^<]+?)\s*</i),
+      inner.match(/<h[1-6][^>]*>\s*([^<]+?)\s*<\/h[1-6]>/i),
+      inner.match(/<span[^>]*>\s*([^<]+?)\s*<\/span>/i),
+    ];
+    for (const s of titleSources) {
+      if (s && s[1]) {
+        const t = decodeEntities(s[1].trim());
+        if (t && t.length >= 2) { title = t; break; }
+      }
     }
     if (!title) title = "Álbum";
 
@@ -135,9 +149,9 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
 
 // ─── FILTROS DE NEGOCIO ───────────────────────────────────────────────────────
 
-const SNEAKER_KEYWORDS = /\b(jordan|aj\s?\d|dunk|sb|air\s?max|air\s?force|af1|yeezy|new\s?balance|nb\s?\d|asics|samba|gazelle|campus|ultra\s?boost|nmd|foamposite|kobe|lebron|kd|curry|vans|converse|puma\s?suede|mizuno|salomon|travis)\b/i;
+const SNEAKER_KEYWORDS = /\b(jordan|aj\s?\d|dunk|sb|air\s?max|air\s?force|af1|af\s?1|yeezy|new\s?balance|nb\s?\d+|asics|samba|gazelle|campus|spezial|forum|ultra\s?boost|nmd|foamposite|kobe|lebron|kd|curry|vans|converse|puma\s?suede|mizuno|salomon|travis|sneaker|sneakers|shoe|shoes|zapatilla|runner|trainer|2002r|1906r|9060|327|550|574|990|992|993|m990|gel\s?kayano|gel\s?nyc|gel\s?lyte|kayano)\b/i;
 
-const FOOTBALL_JACKET_KEYWORDS = /\b(jacket|chaqueta|abrigo|anorak|windbreaker|cortavientos|bomber|varsity|all[\s-]?weather|anthem)\b/i;
+const FOOTBALL_JACKET_KEYWORDS = /\b(jacket|chaqueta|abrigo|anorak|windbreaker|cortavientos|bomber|varsity|all[\s-]?weather|anthem|training\s?top|chandal|tracksuit)\b/i;
 
 const FOOTBALL_ALLOWED_KEYWORDS = new RegExp(
   [
@@ -163,17 +177,22 @@ function applyBusinessFilters(
     if (a.photoCount !== null && a.photoCount <= 1) continue;
 
     const key = normalizeTitleKey(a.title);
+    const urlKey = a.url.toLowerCase();
+    const haystack = key + " " + urlKey;
 
     // b) Reclasificar sneakers que aparecen en catálogos de ropa.
     let category: Category = catalogCategory;
-    if ((catalogId === "pandaclothes" || catalogId === "wu769809876") && SNEAKER_KEYWORDS.test(key)) {
+    if ((catalogId === "pandaclothes" || catalogId === "wu769809876") && SNEAKER_KEYWORDS.test(haystack)) {
       category = "zapatillas";
     }
 
     // c) Catálogo de fútbol: sólo 4 grandes + PSG + Mundial, sin chaquetas.
+    // Si el título es genérico (no se pudo leer), conservamos el álbum para no
+    // vaciar la pestaña por un fallo del scraper.
     if (catalogId === "panshirt") {
       if (FOOTBALL_JACKET_KEYWORDS.test(key)) continue;
-      if (!FOOTBALL_ALLOWED_KEYWORDS.test(key)) continue;
+      const titleIsUsable = key.length >= 3 && !/^album$/.test(key);
+      if (titleIsUsable && !FOOTBALL_ALLOWED_KEYWORDS.test(key)) continue;
     }
 
     out.push({ title: a.title, url: a.url, image: a.image, category });
@@ -267,7 +286,7 @@ function dedupeProducts(products: Product[]): Product[] {
 // Lee los productos del KV si están frescos (menos de 1 hora),
 // si no hace el scraping completo y los guarda en KV.
 
-const CACHE_KEY = "yupoo-products-v2";
+const CACHE_KEY = "yupoo-products-v3";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
 
 /**
