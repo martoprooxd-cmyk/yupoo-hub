@@ -116,33 +116,47 @@ const TITLE_STOPWORDS = new Set([
   "para","en","se","una","uno","and","or","of","in","to","a","an",
 ]);
 
+function isLikelySizeToken(token: string, normalizedTitle: string): boolean {
+  if (!/^\d{1,2}$/.test(token)) return false;
+  const n = Number(token);
+
+  if (n >= 35 && n <= 48) return true;
+  if (n >= 1 && n <= 14 && /\b(size|sz|talla|eu|us|uk)\s*\d{1,2}\b/.test(normalizedTitle)) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Reduce un título a su "clave de modelo":
  * - minúsculas, sin tildes
- * - elimina colores conocidos
- * - elimina números puros (tallas, años sueltos de 1-2 dígitos)
+ * - elimina colores conocidos y tallas explícitas/probables
  * - elimina stopwords
  * - ordena tokens alfabéticamente para que "Dunk Low Black White"
  *   y "Dunk Low White Black" produzcan la misma clave
  */
-function modelKey(title: string): string {
-  const tokens = title
+function modelKey(title: string): string | null {
+  if (isGenericTitle(title)) return null;
+
+  const normalizedTitle = title
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/[^a-z0-9 ]+/g, " ");
+
+  const tokens = normalizedTitle
     .split(/\s+/)
     .filter((t) => {
-      if (!t || t.length < 2) return false;
+      if (!t || (t.length < 2 && !/^\d$/.test(t))) return false;
       if (COLOR_WORDS.has(t)) return false;
       if (TITLE_STOPWORDS.has(t)) return false;
-      // números de 1-2 dígitos (tallas) → fuera; números de 3+ dígitos son modelo
-      if (/^\d{1,2}$/.test(t)) return false;
+      if (isLikelySizeToken(t, normalizedTitle)) return false;
       return true;
     });
 
   // Necesitamos al menos 3 tokens significativos para considerar agrupación
-  if (tokens.length < 3) return `__unique__${title}`; // nunca agrupa
+  if (tokens.length < 3) return null;
 
   return tokens.sort().join(" ");
 }
@@ -163,10 +177,14 @@ function groupVariants(products: Product[]): Product[] {
   const result: Product[] = [];
 
   for (const [, items] of byCatalog) {
-    // Agrupar por modelKey exacto
+    // Agrupar por modelKey exacto. Si el título no es fiable, se deja suelto.
     const groups = new Map<string, Product[]>();
     for (const p of items) {
       const key = modelKey(p.title);
+      if (!key) {
+        result.push(p);
+        continue;
+      }
       const g = groups.get(key) ?? [];
       g.push(p);
       groups.set(key, g);
@@ -370,7 +388,7 @@ function dedupeProducts(products: Product[]): Product[] {
 
 // ─── Caché KV ─────────────────────────────────────────────────────────────────
 
-const CACHE_KEY = "yupoo-products-v3"; // v3: agrupación de variantes corregida
+const CACHE_KEY = "yupoo-products-v4"; // v4: no agrupa títulos genéricos como variantes
 const CACHE_TTL_MS = 60 * 60 * 1000;
 
 async function getFromKV(): Promise<{ products: Product[]; errors: string[]; fetchedAt: string } | null> {
