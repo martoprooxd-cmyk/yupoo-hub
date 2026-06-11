@@ -88,61 +88,71 @@ function detectCategory(title: string, defaultCategory: Category): Category {
   return defaultCategory;
 }
 
-// ─── Normalización de títulos para agrupar variantes ─────────────────────────
+// ─── Agrupación de variantes de color ────────────────────────────────────────
+//
+// Estrategia: dos productos son variantes solo si su título normalizado
+// (sin colores, sin números) es IDÉNTICO Y tiene al menos 3 tokens
+// con significado. Así evitamos agrupar productos distintos que solo
+// comparten el nombre de la marca.
 
-// Colores y términos de variante habituales en títulos Yupoo
-const COLOR_TOKENS = [
-  "black", "white", "red", "blue", "green", "yellow", "orange", "purple",
-  "pink", "grey", "gray", "brown", "navy", "cream", "beige", "olive",
-  "burgundy", "wine", "khaki", "tan", "mint", "teal", "coral", "maroon",
-  "silver", "gold", "multicolor", "multi", "colorway",
+const COLOR_WORDS = new Set([
+  // inglés
+  "black","white","red","blue","green","yellow","orange","purple","pink",
+  "grey","gray","brown","navy","cream","beige","olive","burgundy","wine",
+  "khaki","tan","mint","teal","coral","maroon","silver","gold","multicolor",
+  "multi","colorway","volt","infrared","bred","cement","chicago","royal",
+  "shadow","court","obsidian","platinum","university","smoke","arctic",
+  "thunder","concord","pine","wheat","cactus","sail","ice","crystal","vast",
   // español
-  "negro", "blanco", "rojo", "azul", "verde", "amarillo", "naranja",
-  "morado", "rosa", "gris", "marron", "crema", "dorado", "plateado",
-  // chino pinyin frecuente
-  "hei", "bai", "hong", "lan", "lv",
-  // versiones
-  "ver\\.", "v\\d", "version", "edition", "collab", "x ", "\\bsp\\b",
-  "mid", "low", "high", "og", "retro",
-];
+  "negro","blanco","rojo","azul","verde","amarillo","naranja","morado",
+  "rosa","gris","marron","crema","dorado","plateado","cafe",
+  // pinyin
+  "hei","bai","hong","lan","lv","huang","zi","fen","hui",
+]);
 
-const COLOR_REGEX = new RegExp(
-  `\\b(${COLOR_TOKENS.join("|")})\\b`,
-  "gi"
-);
-
-// Elimina colores, números sueltos, paréntesis vacíos y espacios extra
-function variantKey(title: string): string {
-  return title
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")       // quitar tildes
-    .replace(COLOR_REGEX, " ")              // eliminar colores
-    .replace(/\b\d{1,4}\b/g, " ")          // eliminar números sueltos
-    .replace(/[^a-z0-9 ]+/g, " ")          // solo alfanumérico
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// Similitud simple por palabras comunes (Jaccard sobre tokens)
-function titleSimilarity(a: string, b: string): number {
-  const tokA = new Set(variantKey(a).split(" ").filter(Boolean));
-  const tokB = new Set(variantKey(b).split(" ").filter(Boolean));
-  if (tokA.size === 0 || tokB.size === 0) return 0;
-  let intersection = 0;
-  tokA.forEach((t) => { if (tokB.has(t)) intersection++; });
-  const union = tokA.size + tokB.size - intersection;
-  return intersection / union;
-}
-
-const VARIANT_THRESHOLD = 0.72; // similaridad mínima para considerarlos variantes
+// Palabras que NO son identificadores de modelo (stopwords para este contexto)
+const TITLE_STOPWORDS = new Set([
+  "the","and","for","with","from","new","de","la","el","los","las","con",
+  "para","en","se","una","uno","and","or","of","in","to","a","an",
+]);
 
 /**
- * Agrupa variantes de color/versión dentro de un mismo catálogo.
- * Deja un producto "base" (el primero encontrado) y añade el resto en `.variants[]`.
+ * Reduce un título a su "clave de modelo":
+ * - minúsculas, sin tildes
+ * - elimina colores conocidos
+ * - elimina números puros (tallas, años sueltos de 1-2 dígitos)
+ * - elimina stopwords
+ * - ordena tokens alfabéticamente para que "Dunk Low Black White"
+ *   y "Dunk Low White Black" produzcan la misma clave
+ */
+function modelKey(title: string): string {
+  const tokens = title
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((t) => {
+      if (!t || t.length < 2) return false;
+      if (COLOR_WORDS.has(t)) return false;
+      if (TITLE_STOPWORDS.has(t)) return false;
+      // números de 1-2 dígitos (tallas) → fuera; números de 3+ dígitos son modelo
+      if (/^\d{1,2}$/.test(t)) return false;
+      return true;
+    });
+
+  // Necesitamos al menos 3 tokens significativos para considerar agrupación
+  if (tokens.length < 3) return `__unique__${title}`; // nunca agrupa
+
+  return tokens.sort().join(" ");
+}
+
+/**
+ * Agrupa variantes de color dentro del mismo catálogo.
+ * Solo agrupa si el modelKey es idéntico (título sin colores/números).
+ * Nunca agrupa si el key tiene menos de 3 tokens (productos genéricos/cortos).
  */
 function groupVariants(products: Product[]): Product[] {
-  // Agrupar solo dentro del mismo catálogo para evitar falsos positivos
   const byCatalog = new Map<string, Product[]>();
   for (const p of products) {
     const list = byCatalog.get(p.catalog) ?? [];
@@ -153,36 +163,13 @@ function groupVariants(products: Product[]): Product[] {
   const result: Product[] = [];
 
   for (const [, items] of byCatalog) {
-    // Union-Find ligero
-    const parent = new Map<string, string>();
-    const find = (id: string): string => {
-      if (parent.get(id) === id) return id;
-      const root = find(parent.get(id)!);
-      parent.set(id, root);
-      return root;
-    };
-    const union = (a: string, b: string) => {
-      parent.set(find(b), find(a));
-    };
-
-    items.forEach((p) => parent.set(p.id, p.id));
-
-    // Comparar cada par (O(n²) — OK para ≤80 items por catálogo)
-    for (let i = 0; i < items.length; i++) {
-      for (let j = i + 1; j < items.length; j++) {
-        if (titleSimilarity(items[i].title, items[j].title) >= VARIANT_THRESHOLD) {
-          union(items[i].id, items[j].id);
-        }
-      }
-    }
-
-    // Construir grupos
+    // Agrupar por modelKey exacto
     const groups = new Map<string, Product[]>();
     for (const p of items) {
-      const root = find(p.id);
-      const g = groups.get(root) ?? [];
+      const key = modelKey(p.title);
+      const g = groups.get(key) ?? [];
       g.push(p);
-      groups.set(root, g);
+      groups.set(key, g);
     }
 
     for (const group of groups.values()) {
@@ -383,7 +370,7 @@ function dedupeProducts(products: Product[]): Product[] {
 
 // ─── Caché KV ─────────────────────────────────────────────────────────────────
 
-const CACHE_KEY = "yupoo-products-v2"; // v2 para invalidar caché antigua
+const CACHE_KEY = "yupoo-products-v3"; // v3: agrupación de variantes corregida
 const CACHE_TTL_MS = 60 * 60 * 1000;
 
 async function getFromKV(): Promise<{ products: Product[]; errors: string[]; fetchedAt: string } | null> {
