@@ -2,6 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 
 type Category = "zapatillas" | "ropa" | "futbol" | "invierno" | "accesorios";
 
+export type ProductVariant = {
+  id: string;
+  title: string;
+  url: string;
+  image: string;
+};
+
 export type Product = {
   id: string;
   title: string;
@@ -10,15 +17,16 @@ export type Product = {
   catalog: string;
   catalogName: string;
   category: Category;
+  variants?: ProductVariant[]; // otros colores / versiones del mismo modelo
 };
 
-const CATALOGS: { id: string; name: string; url: string; category: Category }[] = [
-  { id: "pandashoesx", name: "Panda Shoes", url: "https://pandashoesx.x.yupoo.com", category: "zapatillas" },
-  { id: "panshirt", name: "Pan Shirt", url: "https://panshirt.x.yupoo.com", category: "futbol" },
-  { id: "pandaclothes", name: "Panda Clothes", url: "https://pandaclothes.x.yupoo.com", category: "ropa" },
-  { id: "wu769809876", name: "WU Collection", url: "https://wu769809876.x.yupoo.com", category: "ropa" },
-  { id: "maoyi998", name: "998 Maoyi", url: "http://998maoyi.x.yupoo.com", category: "accesorios" },
-  { id: "winterclothes", name: "Winter Clothes", url: "https://winterclothes.x.yupoo.com", category: "invierno" },
+export const CATALOGS: { id: string; name: string; url: string; defaultCategory: Category }[] = [
+  { id: "pandashoesx", name: "Panda Shoes", url: "https://pandashoesx.x.yupoo.com", defaultCategory: "zapatillas" },
+  { id: "panshirt", name: "Pan Shirt", url: "https://panshirt.x.yupoo.com", defaultCategory: "futbol" },
+  { id: "pandaclothes", name: "Panda Clothes", url: "https://pandaclothes.x.yupoo.com", defaultCategory: "ropa" },
+  { id: "wu769809876", name: "WU Collection", url: "https://wu769809876.x.yupoo.com", defaultCategory: "ropa" },
+  { id: "maoyi998", name: "998 Maoyi", url: "http://998maoyi.x.yupoo.com", defaultCategory: "zapatillas" },
+  { id: "winterclothes", name: "Winter Clothes", url: "https://winterclothes.x.yupoo.com", defaultCategory: "invierno" },
 ];
 
 const SIZE_NAMES = new Set([
@@ -27,6 +35,178 @@ const SIZE_NAMES = new Set([
   "big", "b", "large", "l", "xl", "xxl",
   "square", "origin", "original", "full", "hd", "raw",
 ]);
+
+// ─── Keywords para detección de categoría por título ─────────────────────────
+
+const CATEGORY_KEYWORDS: { category: Category; keywords: string[] }[] = [
+  {
+    category: "futbol",
+    keywords: ["jersey", "camiseta", "football", "soccer", "kit", "maillot", "calcio",
+      "bundesliga", "laliga", "premier", "serie a", "ligue", "champions", "world cup",
+      "national team", "selección", "shirt"],
+  },
+  {
+    category: "zapatillas",
+    keywords: ["jordan", "nike", "adidas", "yeezy", "dunk", "aj1", "aj4", "aj11",
+      "air max", "air force", "new balance", "nb", "asics", "puma", "reebok",
+      "sneaker", "zapatilla", "shoe", "trainer", "boost", "foam", "runner",
+      "350", "380", "500", "990", "574", "550", "990v", "1080", "2002",
+      "vans", "converse", "chuck", "ultraboost", "nmd", "ozweego",
+      "off white", "travis", "fragment"],
+  },
+  {
+    category: "invierno",
+    keywords: ["jacket", "coat", "puffer", "down", "winter", "fleece", "hoodie",
+      "sweatshirt", "sudadera", "chaqueta", "abrigo", "parka", "windbreaker",
+      "anorak", "vest", "gilet", "norte face", "north face", "arcteryx",
+      "canada goose", "moncler", "stone island"],
+  },
+  {
+    category: "ropa",
+    keywords: ["tshirt", "t-shirt", "tee", "polo", "shorts", "pants", "jeans",
+      "denim", "cargo", "trousers", "top", "sweat", "tracksuit", "jogger",
+      "hoodie", "crewneck", "long sleeve", "boxy", "oversized"],
+  },
+  {
+    category: "accesorios",
+    keywords: ["bag", "backpack", "cap", "hat", "belt", "wallet", "watch",
+      "sunglasses", "socks", "scarf", "gloves", "keychain", "bracelet",
+      "necklace", "ring", "earring", "bolso", "gorra", "cinturón",
+      "calcetines", "bufanda"],
+  },
+];
+
+function detectCategory(title: string, defaultCategory: Category): Category {
+  const lower = title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  for (const { category, keywords } of CATEGORY_KEYWORDS) {
+    for (const kw of keywords) {
+      if (lower.includes(kw)) return category;
+    }
+  }
+
+  return defaultCategory;
+}
+
+// ─── Normalización de títulos para agrupar variantes ─────────────────────────
+
+// Colores y términos de variante habituales en títulos Yupoo
+const COLOR_TOKENS = [
+  "black", "white", "red", "blue", "green", "yellow", "orange", "purple",
+  "pink", "grey", "gray", "brown", "navy", "cream", "beige", "olive",
+  "burgundy", "wine", "khaki", "tan", "mint", "teal", "coral", "maroon",
+  "silver", "gold", "multicolor", "multi", "colorway",
+  // español
+  "negro", "blanco", "rojo", "azul", "verde", "amarillo", "naranja",
+  "morado", "rosa", "gris", "marron", "crema", "dorado", "plateado",
+  // chino pinyin frecuente
+  "hei", "bai", "hong", "lan", "lv",
+  // versiones
+  "ver\\.", "v\\d", "version", "edition", "collab", "x ", "\\bsp\\b",
+  "mid", "low", "high", "og", "retro",
+];
+
+const COLOR_REGEX = new RegExp(
+  `\\b(${COLOR_TOKENS.join("|")})\\b`,
+  "gi"
+);
+
+// Elimina colores, números sueltos, paréntesis vacíos y espacios extra
+function variantKey(title: string): string {
+  return title
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")       // quitar tildes
+    .replace(COLOR_REGEX, " ")              // eliminar colores
+    .replace(/\b\d{1,4}\b/g, " ")          // eliminar números sueltos
+    .replace(/[^a-z0-9 ]+/g, " ")          // solo alfanumérico
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Similitud simple por palabras comunes (Jaccard sobre tokens)
+function titleSimilarity(a: string, b: string): number {
+  const tokA = new Set(variantKey(a).split(" ").filter(Boolean));
+  const tokB = new Set(variantKey(b).split(" ").filter(Boolean));
+  if (tokA.size === 0 || tokB.size === 0) return 0;
+  let intersection = 0;
+  tokA.forEach((t) => { if (tokB.has(t)) intersection++; });
+  const union = tokA.size + tokB.size - intersection;
+  return intersection / union;
+}
+
+const VARIANT_THRESHOLD = 0.72; // similaridad mínima para considerarlos variantes
+
+/**
+ * Agrupa variantes de color/versión dentro de un mismo catálogo.
+ * Deja un producto "base" (el primero encontrado) y añade el resto en `.variants[]`.
+ */
+function groupVariants(products: Product[]): Product[] {
+  // Agrupar solo dentro del mismo catálogo para evitar falsos positivos
+  const byCatalog = new Map<string, Product[]>();
+  for (const p of products) {
+    const list = byCatalog.get(p.catalog) ?? [];
+    list.push(p);
+    byCatalog.set(p.catalog, list);
+  }
+
+  const result: Product[] = [];
+
+  for (const [, items] of byCatalog) {
+    // Union-Find ligero
+    const parent = new Map<string, string>();
+    const find = (id: string): string => {
+      if (parent.get(id) === id) return id;
+      const root = find(parent.get(id)!);
+      parent.set(id, root);
+      return root;
+    };
+    const union = (a: string, b: string) => {
+      parent.set(find(b), find(a));
+    };
+
+    items.forEach((p) => parent.set(p.id, p.id));
+
+    // Comparar cada par (O(n²) — OK para ≤80 items por catálogo)
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        if (titleSimilarity(items[i].title, items[j].title) >= VARIANT_THRESHOLD) {
+          union(items[i].id, items[j].id);
+        }
+      }
+    }
+
+    // Construir grupos
+    const groups = new Map<string, Product[]>();
+    for (const p of items) {
+      const root = find(p.id);
+      const g = groups.get(root) ?? [];
+      g.push(p);
+      groups.set(root, g);
+    }
+
+    for (const group of groups.values()) {
+      const [base, ...rest] = group;
+      if (rest.length === 0) {
+        result.push(base);
+      } else {
+        result.push({
+          ...base,
+          variants: rest.map((p) => ({
+            id: p.id,
+            title: p.title,
+            url: p.url,
+            image: p.image,
+          })),
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
+// ─── Helpers de imagen ───────────────────────────────────────────────────────
 
 function decodeEntities(s: string): string {
   return s
@@ -74,25 +254,18 @@ function imageQualityScore(src: string): number {
   return 3;
 }
 
-function parseAlbums(html: string, base: string): { title: string; url: string; image: string; photoCount: number | null }[] {
-  const items: { title: string; url: string; image: string; photoCount: number | null }[] = [];
+function parseAlbums(html: string, base: string): { title: string; url: string; image: string }[] {
+  const items: { title: string; url: string; image: string }[] = [];
   const seen = new Set<string>();
 
-  // Capture the whole anchor tag (with all attributes) plus inner content plus
-  // a tail of siblings — title/photo-count are often outside the <a>.
   const blockRegex =
-    /<a\b([^>]*class="[^"]*\balbum__main\b[^"]*"[^>]*)>([\s\S]*?)<\/a>([\s\S]{0,800})/gi;
+    /<a\b[^>]*class="[^"]*\balbum__main\b[^"]*"[^>]*href="([^"]+)"[^>]*?(?:title="([^"]*)")?[^>]*>([\s\S]*?)<\/a>/gi;
 
   let m: RegExpExecArray | null;
   while ((m = blockRegex.exec(html)) !== null) {
-    const attrs = m[1];
-    const inner = m[2];
-    const tail = m[3] || "";
-    const fullBlock = attrs + " " + inner + " " + tail;
-
-    const hrefMatch = attrs.match(/\bhref="([^"]+)"/i);
-    if (!hrefMatch) continue;
-    const href = decodeEntities(hrefMatch[1]);
+    const href = decodeEntities(m[1]);
+    let title = decodeEntities((m[2] || "").trim());
+    const inner = m[3];
 
     const imgMatch =
       inner.match(/data-src="([^"]+)"/i) ||
@@ -105,180 +278,67 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
     if (image.startsWith("/")) image = base + image;
     if (/im_photo_album|avatar|logo|qrcode|favicon|sprite|loading_icon/i.test(image)) continue;
 
-    // Title: try every plausible source.
-    let title = "";
-    const titleSources: (RegExpMatchArray | null)[] = [
-      attrs.match(/\btitle="([^"]+)"/i),
-      attrs.match(/\bdata-title="([^"]+)"/i),
-      inner.match(/album__main_title[^>]*>\s*([^<]+?)\s*</i),
-      inner.match(/class="[^"]*\btitle\b[^"]*"[^>]*>\s*([^<]+?)\s*</i),
-      inner.match(/<img[^>]*\salt="([^"]+)"/i),
-      tail.match(/album__main_title[^>]*>\s*([^<]+?)\s*</i),
-      tail.match(/class="[^"]*\btitle\b[^"]*"[^>]*>\s*([^<]+?)\s*</i),
-      inner.match(/<h[1-6][^>]*>\s*([^<]+?)\s*<\/h[1-6]>/i),
-      inner.match(/<span[^>]*>\s*([^<]+?)\s*<\/span>/i),
-    ];
-    for (const s of titleSources) {
-      if (s && s[1]) {
-        const t = decodeEntities(s[1].trim());
-        if (t && t.length >= 2) { title = t; break; }
-      }
+    if (!title) {
+      const titleMatch =
+        inner.match(/album__main_title[^>]*>\s*([^<]+?)\s*</i) ||
+        inner.match(/\btitle="([^"]+)"/i) ||
+        inner.match(/<h[1-6][^>]*>\s*([^<]+?)\s*<\/h[1-6]>/i) ||
+        inner.match(/<span[^>]*>\s*([^<]+?)\s*<\/span>/i);
+      if (titleMatch) title = decodeEntities(titleMatch[1].trim());
     }
     if (!title) title = "Álbum";
-
-    let photoCount: number | null = null;
-    const countMatch =
-      fullBlock.match(/album__main_pic_count[^>]*>\s*(\d+)/i) ||
-      fullBlock.match(/showalbumphotos[^>]*>\s*(\d+)/i) ||
-      fullBlock.match(/>\s*(\d+)\s*(?:photos?|fotos?|pics?|张|張)\b/i);
-    if (countMatch) {
-      const n = parseInt(countMatch[1], 10);
-      if (Number.isFinite(n)) photoCount = n;
-    }
 
     const url = href.startsWith("http") ? href : base + href;
     const urlKey = url.split("?")[0];
     if (seen.has(urlKey)) continue;
     seen.add(urlKey);
 
-    items.push({ title, url, image, photoCount });
+    items.push({ title, url, image });
   }
 
   return items;
-}
-
-// ─── FILTROS DE NEGOCIO ───────────────────────────────────────────────────────
-
-// Modelos/marcas claramente de zapatilla — gana sobre keywords de ropa.
-const STRONG_SNEAKER_KEYWORDS = /\b(jordan|aj\s?\d|dunk|sb\s?dunk|air\s?max|air\s?force|af1|af\s?1|yeezy|new\s?balance|nb\s?\d+|asics|samba|gazelle|campus|spezial|forum|ultra\s?boost|nmd|foamposite|kobe|lebron|kd\s?\d|curry|vans|converse|puma\s?suede|mizuno|salomon|travis|2002r|1906r|9060|327|550|574|990|992|993|m990|gel\s?kayano|gel\s?nyc|gel\s?lyte|kayano|vapormax|pegasus|cortez|blazer|terrex|ozweego|tn\s?plus|triple\s?s|speed\s?trainer|track\s?\d|cloudbust|monolith|balenciaga\s?(track|triple|speed|runner))\b/i;
-
-// Pistas genéricas de calzado — útil en `pandaclothes`/`wu769809876`.
-const SOFT_SNEAKER_KEYWORDS = /\b(sneaker|sneakers|shoe|shoes|zapatilla|zapatillas|runner|trainer|mule|slide|slipper|boot|boots|bota|botas|botin|botines|clog|loafer|mocasin|cleats|nike|adidas|puma|reebok|under\s?armour)\b/i;
-
-// Si el título parece ropa, mantenemos en ropa salvo que haya STRONG sneaker.
-const CLOTHING_KEYWORDS = /\b(hoodie|sudadera|t[-\s]?shirt|tshirt|camiseta|polo|jersey|sweater|sweatshirt|pants|pantalon|jeans|denim|shorts|bermuda|falda|vestido|dress|skirt|abrigo|coat|cargo|tracksuit|chandal|jacket|chaqueta)\b/i;
-
-const FOOTBALL_JACKET_KEYWORDS = /\b(jacket|chaqueta|abrigo|anorak|windbreaker|cortavientos|bomber|varsity|all[\s-]?weather|anthem|training\s?top|chandal|tracksuit)\b/i;
-
-const FOOTBALL_ALLOWED_KEYWORDS = new RegExp(
-  [
-    "arsenal","chelsea","liverpool","man\\s?utd","manchester\\s?united","man\\s?city","manchester\\s?city","tottenham","spurs","newcastle","west\\s?ham","aston\\s?villa","brighton","crystal\\s?palace","everton","fulham","wolves","brentford","leeds","leicester","nottingham","forest","bournemouth","sheffield","burnley","luton",
-    "real\\s?madrid","barcelona","barca","atletico","atleti","sevilla","valencia","villarreal","betis","athletic","bilbao","real\\s?sociedad","getafe","osasuna","celta","espanyol","mallorca","girona","rayo","cadiz","granada","las\\s?palmas","alaves","almeria",
-    "juventus","juve","ac\\s?milan","milan","inter","napoli","roma","lazio","fiorentina","atalanta","torino","bologna","udinese","sassuolo","genoa","verona","lecce","monza","salernitana","cagliari","empoli","frosinone",
-    "bayern","dortmund","bvb","leipzig","leverkusen","frankfurt","wolfsburg","gladbach","hoffenheim","stuttgart","freiburg","bremen","augsburg","mainz","koln","union\\s?berlin","bochum","heidenheim","darmstadt",
-    "psg","paris\\s?saint","paris\\s?sg",
-    "mundial","world\\s?cup","copa\\s?del\\s?mundo","qatar\\s?2022","2026",
-    "argentina","brasil","brazil","francia","france","espana","spain","alemania","germany","portugal","inglaterra","england","italia","italy","mexico","japan","japon","korea","corea","croatia","croacia","uruguay","colombia","ecuador","peru","chile","paraguay","usa","canada","marruecos","morocco","senegal","ghana","camerun","nigeria","australia","dinamarca","suiza","belgica","holanda","polonia","serbia","gales","ucrania",
-  ].join("|"),
-  "i",
-);
-
-function applyBusinessFilters(
-  raw: { title: string; url: string; image: string; photoCount: number | null }[],
-  catalogId: string,
-  catalogCategory: Category,
-): { title: string; url: string; image: string; category: Category }[] {
-  const out: { title: string; url: string; image: string; category: Category }[] = [];
-  for (const a of raw) {
-    // d) Descartar álbumes con <= 1 foto (sólo si hemos podido detectar el contador).
-    if (a.photoCount !== null && a.photoCount <= 1) continue;
-
-    const key = normalizeTitleKey(a.title);
-    const urlKey = a.url.toLowerCase();
-    const haystack = key + " " + urlKey;
-
-    // b) Reclasificar sneakers que aparecen en catálogos de ropa.
-    let category: Category = catalogCategory;
-    if (catalogId === "pandaclothes" || catalogId === "wu769809876") {
-      const strong = STRONG_SNEAKER_KEYWORDS.test(haystack);
-      const soft = SOFT_SNEAKER_KEYWORDS.test(haystack);
-      const clothing = CLOTHING_KEYWORDS.test(key);
-      if (strong || (soft && !clothing)) category = "zapatillas";
-    }
-    // Inverso: si el catálogo es de zapatillas pero el título es claramente ropa.
-    if (catalogId === "pandashoesx" && CLOTHING_KEYWORDS.test(key) && !STRONG_SNEAKER_KEYWORDS.test(haystack) && !SOFT_SNEAKER_KEYWORDS.test(haystack)) {
-      category = "ropa";
-    }
-
-    // c) Catálogo de fútbol: sólo 4 grandes + PSG + Mundial, sin chaquetas.
-    // Si el título es genérico (no se pudo leer), conservamos el álbum para no
-    // vaciar la pestaña por un fallo del scraper.
-    if (catalogId === "panshirt") {
-      if (FOOTBALL_JACKET_KEYWORDS.test(key)) continue;
-      const titleIsUsable = key.length >= 3 && !/^album$/.test(key);
-      if (titleIsUsable && !FOOTBALL_ALLOWED_KEYWORDS.test(key)) continue;
-    }
-
-    out.push({ title: a.title, url: a.url, image: a.image, category });
-  }
-  return out;
-}
-
-const PAGES_PER_CATALOG = 5;
-
-async function fetchPageHtml(apiKey: string, url: string): Promise<string | null> {
-  try {
-    const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url,
-        formats: ["html"],
-        onlyMainContent: false,
-        waitFor: 1500,
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      console.error(`Firecrawl ${url} ${res.status}: ${txt.slice(0, 160)}`);
-      return null;
-    }
-    const json = (await res.json()) as { data?: { html?: string } };
-    return json.data?.html ?? null;
-  } catch (e) {
-    console.error(`Firecrawl fetch failed ${url}:`, e);
-    return null;
-  }
 }
 
 async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
   if (!apiKey) throw new Error("FIRECRAWL_API_KEY not configured");
 
+  const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url: catalog.url,
+      formats: ["html"],
+      onlyMainContent: false,
+      waitFor: 1500,
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    console.error(`Firecrawl ${catalog.id} ${res.status}: ${txt.slice(0, 200)}`);
+    return [];
+  }
+
+  const json = (await res.json()) as { data?: { html?: string } };
+  const html = json.data?.html;
+  if (!html) return [];
+
   const base = catalog.url.replace(/\/$/, "");
-  const pageUrls: string[] = [];
-  for (let p = 1; p <= PAGES_PER_CATALOG; p++) {
-    pageUrls.push(p === 1 ? catalog.url : `${base}/?tab=gallery&page=${p}`);
-  }
+  const albums = parseAlbums(html, base);
 
-  const htmls = await Promise.all(pageUrls.map((u) => fetchPageHtml(apiKey, u)));
-
-  const seenUrl = new Set<string>();
-  const allAlbums: { title: string; url: string; image: string; photoCount: number | null }[] = [];
-  for (const html of htmls) {
-    if (!html) continue;
-    const page = parseAlbums(html, base);
-    for (const a of page) {
-      const k = a.url.split("?")[0];
-      if (seenUrl.has(k)) continue;
-      seenUrl.add(k);
-      allAlbums.push(a);
-    }
-  }
-
-  const filtered = applyBusinessFilters(allAlbums, catalog.id, catalog.category);
-
-  return filtered.slice(0, 400).map((a, i) => ({
+  return albums.slice(0, 80).map((a, i) => ({
     id: `${catalog.id}-${i}-${a.url.slice(-20)}`,
     title: a.title,
     url: a.url,
     image: a.image,
     catalog: catalog.id,
     catalogName: catalog.name,
-    category: a.category,
+    // Detectar categoría por título; si no se reconoce, usar la del catálogo
+    category: detectCategory(a.title, catalog.defaultCategory),
   }));
 }
 
@@ -321,56 +381,32 @@ function dedupeProducts(products: Product[]): Product[] {
   return out;
 }
 
-// ─── CACHÉ EN CLOUDFLARE KV ───────────────────────────────────────────────────
-// Lee los productos del KV si están frescos (menos de 1 hora),
-// si no hace el scraping completo y los guarda en KV.
+// ─── Caché KV ─────────────────────────────────────────────────────────────────
 
-const CACHE_KEY = "yupoo-products-v4";
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
-
-/**
- * Obtiene los bindings de Cloudflare de forma segura.
- * Solo disponible en Workers/Pages, retorna null en desarrollo local.
- */
-function getCloudflareBindings(): { YUPOO_KV: KVNamespace | null } {
-  if (typeof globalThis === "undefined") {
-    return { YUPOO_KV: null };
-  }
-  
-  const kv = (globalThis as any).YUPOO_KV ?? null;
-  return { YUPOO_KV: kv };
-}
+const CACHE_KEY = "yupoo-products-v2"; // v2 para invalidar caché antigua
+const CACHE_TTL_MS = 60 * 60 * 1000;
 
 async function getFromKV(): Promise<{ products: Product[]; errors: string[]; fetchedAt: string } | null> {
   try {
-    const { YUPOO_KV } = getCloudflareBindings();
-    if (!YUPOO_KV) {
-      console.debug("Cloudflare KV not available (dev environment?)");
-      return null;
-    }
-    const raw = await YUPOO_KV.get(CACHE_KEY);
+    // @ts-expect-error YUPOO_KV binding de Cloudflare
+    const kv = globalThis.YUPOO_KV;
+    if (!kv) return null;
+    const raw = await kv.get(CACHE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    // Comprobar si el caché sigue fresco
-    if (Date.now() - new Date(data.fetchedAt).getTime() < CACHE_TTL_MS) {
-      return data;
-    }
+    if (Date.now() - new Date(data.fetchedAt).getTime() < CACHE_TTL_MS) return data;
     return null;
-  } catch (e) {
-    console.error("KV read error:", e);
+  } catch {
     return null;
   }
 }
 
 async function saveToKV(data: { products: Product[]; errors: string[]; fetchedAt: string }): Promise<void> {
   try {
-    const { YUPOO_KV } = getCloudflareBindings();
-    if (!YUPOO_KV) {
-      console.debug("Cloudflare KV not available (dev environment?)");
-      return;
-    }
-    // TTL de 2 horas en KV (por si el cron falla, los datos siguen disponibles)
-    await YUPOO_KV.put(CACHE_KEY, JSON.stringify(data), { expirationTtl: 7200 });
+    // @ts-expect-error YUPOO_KV binding de Cloudflare
+    const kv = globalThis.YUPOO_KV;
+    if (!kv) return;
+    await kv.put(CACHE_KEY, JSON.stringify(data), { expirationTtl: 7200 });
   } catch (e) {
     console.error("KV write error:", e);
   }
@@ -379,14 +415,12 @@ async function saveToKV(data: { products: Product[]; errors: string[]; fetchedAt
 export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ products: Product[]; errors: string[]; fetchedAt: string }> => {
 
-    // 1. Intentar leer del caché KV primero
     const cached = await getFromKV();
     if (cached) {
       console.log("Serving from KV cache, fetchedAt:", cached.fetchedAt);
       return cached;
     }
 
-    // 2. Si no hay caché, hacer el scraping completo
     console.log("Cache miss — scraping Firecrawl...");
     const results = await Promise.allSettled(CATALOGS.map((c) => scrapeOne(c)));
 
@@ -401,18 +435,24 @@ export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
       }
     });
 
+    // 1. Deduplicar por URL/imagen/título exacto
+    const deduped = dedupeProducts(products);
+
+    // 2. Agrupar variantes de color/versión del mismo modelo
+    const grouped = groupVariants(deduped);
+
     const data = {
-      products: dedupeProducts(products),
+      products: grouped,
       errors,
       fetchedAt: new Date().toISOString(),
     };
 
-    // 3. Guardar en KV para las próximas visitas
     await saveToKV(data);
-
     return data;
   }
 );
+
+// ─── Album images ─────────────────────────────────────────────────────────────
 
 function parseAlbumImages(html: string): string[] {
   const bestByKey = new Map<string, { src: string; score: number }>();
