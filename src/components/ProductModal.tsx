@@ -12,6 +12,7 @@ import {
   Share2,
   Check,
   Send,
+  Layers,
 } from "lucide-react";
 import {
   Dialog,
@@ -32,18 +33,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { fetchAlbumImages, type Product } from "@/lib/yupoo.functions";
+import { fetchAlbumImages, type Product, type ProductVariant } from "@/lib/yupoo.functions";
 import { proxyImageUrl } from "@/lib/image-proxy";
 
-// PayPal config
-// Cambia esto por tu Client ID real de PayPal (sandbox o live)
-// Panel PayPal → Apps & Credentials → Tu app → Client ID
 const PAYPAL_CLIENT_ID = "TU_PAYPAL_CLIENT_ID_AQUI";
 
-const PRICE_CURRENT = 22; // € temporada actual
-const PRICE_RETRO = 25;   // € retro / clásica
-
-// Tipos
+const PRICE_CURRENT = 22;
+const PRICE_RETRO = 25;
 
 type ShippingAddress = {
   nombre: string;
@@ -55,7 +51,6 @@ type ShippingAddress = {
 
 type CheckoutStep = "idle" | "form" | "paypal" | "success";
 
-// Declaración global para el SDK de PayPal (cargado por script)
 declare global {
   interface Window {
     paypal?: {
@@ -68,8 +63,6 @@ declare global {
   }
 }
 
-// Helpers
-
 function isFootball(product: Product): boolean {
   const h = `${product.title} ${product.catalogName} ${product.category}`.toLowerCase();
   return (
@@ -80,7 +73,6 @@ function isFootball(product: Product): boolean {
     h.includes("jersey") ||
     h.includes("camiseta") ||
     (h.includes("panshirt") || h.includes("pan shirt")) ||
-    // Excluir explícitamente NBA / baloncesto
     (!h.includes("nba") && !h.includes("basket") && product.category === "futbol")
   );
 }
@@ -100,10 +92,34 @@ function getPrice(product: Product): number {
   return isRetro(product) ? PRICE_RETRO : PRICE_CURRENT;
 }
 
+// Extrae un "label de color" del título de una variante respecto al base
+// Ejemplo: "Nike Dunk Low Black White" vs base "Nike Dunk Low" → "Black White"
+function variantLabel(baseTitle: string, variantTitle: string): string {
+  const base = new Set(
+    baseTitle
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(" ")
+      .filter(Boolean)
+  );
+
+  const unique = variantTitle
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(" ")
+    .filter((w) => w.length > 1 && !base.has(w));
+
+  return unique.length > 0
+    ? unique.slice(0, 3).join(" ")
+    : variantTitle.slice(0, 24);
+}
+
 const ADULT_SIZES = ["S", "M", "L", "XL", "XXL"];
 const KID_SIZES = ["XS", "S", "M"];
-
-//  Sub-componente: formulario de dirección
 
 function ShippingForm({
   address,
@@ -167,8 +183,6 @@ function ShippingForm({
   );
 }
 
-// Sub-componente: paso PayPal (sin npm, usa SDK por script)
-
 function PayPalStep({
   product,
   address,
@@ -187,18 +201,30 @@ function PayPalStep({
   const buttonsRef = useRef<ReturnType<NonNullable<Window["paypal"]>["Buttons"]> | null>(null);
   const [sdkError, setSdkError] = useState(false);
 
-  const renderButtons = useCallback(() => {
+  if (PAYPAL_CLIENT_ID === "TU_PAYPAL_CLIENT_ID_AQUI") {
+    return (
+      <div className="space-y-4">
+        <p className="rounded-md border border-border bg-muted/30 p-3 text-center text-xs text-muted-foreground">
+          PayPal no está configurado en este entorno.
+        </p>
+        <button
+          type="button"
+          onClick={onBack}
+          className="w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+        >
+          ← Volver
+        </button>
+      </div>
+    );
+  }
+
+  const renderButtons = () => {
     if (!containerRef.current || !window.paypal) return;
-
-    // Limpiar botones anteriores
     containerRef.current.innerHTML = "";
-
     try {
       const buttons = window.paypal.Buttons({
         style: { layout: "vertical", color: "gold", shape: "rect", label: "pay" },
-        createOrder: (_data: unknown, actions: {
-          order: { create: (o: object) => Promise<string> };
-        }) =>
+        createOrder: (_data: unknown, actions: { order: { create: (o: object) => Promise<string> } }) =>
           actions.order.create({
             intent: "CAPTURE",
             purchase_units: [
@@ -231,9 +257,7 @@ function PayPalStep({
               },
             ],
           }),
-        onApprove: async (_data: unknown, actions: {
-          order?: { capture: () => Promise<unknown> };
-        }) => {
+        onApprove: async (_data: unknown, actions: { order?: { capture: () => Promise<unknown> } }) => {
           await actions.order?.capture();
           onSuccess();
         },
@@ -242,26 +266,19 @@ function PayPalStep({
 
       if (buttons.isEligible()) {
         buttonsRef.current = buttons;
-        buttons.render(containerRef.current);
+        buttons.render(containerRef.current!);
       } else {
         setSdkError(true);
       }
     } catch {
       setSdkError(true);
     }
-  }, [product, address, size, price, onSuccess]);
+  };
 
   useEffect(() => {
-    // Guard: si no hay Client ID configurado, mostrar aviso en lugar de cargar el SDK
-    if (!PAYPAL_CLIENT_ID || PAYPAL_CLIENT_ID === "TU_PAYPAL_CLIENT_ID_AQUI") {
-      setSdkError(true);
-      return;
-    }
-    // Si el SDK ya está cargado, renderizar directamente
     if (window.paypal) {
       renderButtons();
     } else {
-      // Cargar el SDK de PayPal por script (sin npm)
       const existing = document.getElementById("paypal-sdk-script");
       if (existing) {
         existing.addEventListener("load", renderButtons);
@@ -275,17 +292,15 @@ function PayPalStep({
         document.body.appendChild(script);
       }
     }
-
     return () => {
-      // Limpiar botones al desmontar
       try { buttonsRef.current?.close(); } catch { /* ignore */ }
       buttonsRef.current = null;
     };
-  }, [renderButtons]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="space-y-4">
-      {/* Resumen del pedido */}
       <div className="rounded-md border border-border bg-background/60 p-3 text-sm">
         <p className="font-semibold">{product.title}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
@@ -294,19 +309,15 @@ function PayPalStep({
         <div className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
           <MapPin className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
           <span>
-            {address.nombre} · {address.direccion}, {address.codigoPostal}{" "}
-            {address.ciudad}, {address.pais}
+            {address.nombre} · {address.direccion}, {address.codigoPostal} {address.ciudad}, {address.pais}
           </span>
         </div>
       </div>
 
       {sdkError ? (
-        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-center text-xs">
-          <p className="font-semibold">PayPal aún no configurado</p>
-          <p className="text-muted-foreground">
-            Escríbenos por WhatsApp o email para confirmar tu reserva y te enviamos el enlace de pago.
-          </p>
-        </div>
+        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-center text-xs text-destructive">
+          Error al cargar PayPal. Comprueba tu conexión e inténtalo de nuevo.
+        </p>
       ) : (
         <div ref={containerRef} className="min-h-[50px]">
           <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
@@ -327,7 +338,70 @@ function PayPalStep({
   );
 }
 
-// Componente principal
+// ─── Selector de variantes de color ──────────────────────────────────────────
+
+function VariantSelector({
+  product,
+  onSelectVariant,
+}: {
+  product: Product;
+  onSelectVariant: (v: ProductVariant | null) => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(null); // null = base
+
+  if (!product.variants || product.variants.length === 0) return null;
+
+  const allVariants: Array<{ id: string | null; title: string; image: string; url: string }> = [
+    { id: null, title: product.title, image: product.image, url: product.url },
+    ...product.variants.map((v) => ({ id: v.id, title: v.title, image: v.image, url: v.url })),
+  ];
+
+  const handleSelect = (v: typeof allVariants[number]) => {
+    const newId = v.id;
+    setSelected(newId);
+    onSelectVariant(newId === null ? null : (product.variants!.find((pv) => pv.id === newId) ?? null));
+  };
+
+  return (
+    <div className="mt-3">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <Layers className="h-3.5 w-3.5 text-primary" />
+        {product.variants.length + 1} colores disponibles
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {allVariants.map((v) => {
+          const isActive = selected === v.id;
+          const label = v.id === null
+            ? variantLabel("", product.title)
+            : variantLabel(product.title, v.title);
+          return (
+            <button
+              key={v.id ?? "base"}
+              type="button"
+              onClick={() => handleSelect(v)}
+              title={v.title}
+              className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${
+                isActive
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card hover:border-primary/50 text-foreground"
+              }`}
+            >
+              <img
+                src={proxyImageUrl(v.image)}
+                alt={label}
+                referrerPolicy="no-referrer"
+                className="h-6 w-6 rounded-sm object-cover"
+              />
+              <span className="max-w-[80px] truncate capitalize">{label || "base"}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 type Props = {
   product: Product | null;
@@ -336,19 +410,20 @@ type Props = {
   onToggleFav: (id: string) => void;
 };
 
-export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
+export function ProductModal({ product: baseProp, onClose, isFav, onToggleFav }: Props) {
   const fetchImages = useServerFn(fetchAlbumImages);
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
 
-  // Estado del checkout
+  // El producto activo puede ser el base o una variante seleccionada
+  const [activeVariant, setActiveVariant] = useState<ProductVariant | null>(null);
+  const product = activeVariant
+    ? { ...baseProp!, ...activeVariant, variants: baseProp?.variants }
+    : baseProp;
+
   const [step, setStep] = useState<CheckoutStep>("idle");
   const [address, setAddress] = useState<ShippingAddress>({
-    nombre: "",
-    direccion: "",
-    ciudad: "",
-    codigoPostal: "",
-    pais: "España",
+    nombre: "", direccion: "", ciudad: "", codigoPostal: "", pais: "España",
   });
   const [sizeMode, setSizeMode] = useState<"adulto" | "nino">("adulto");
   const [size, setSize] = useState<string>("");
@@ -356,7 +431,6 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
   const [contactSent, setContactSent] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Resetear al cambiar de producto o cerrar
   useEffect(() => {
     setStep("idle");
     setAddress({ nombre: "", direccion: "", ciudad: "", codigoPostal: "", pais: "España" });
@@ -366,7 +440,8 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
     setContact("");
     setContactSent(false);
     setCopied(false);
-  }, [product?.url]);
+    setActiveVariant(null);
+  }, [baseProp?.url]);
 
   const shareProduct = useCallback(async () => {
     if (!product) return;
@@ -374,9 +449,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
       await navigator.clipboard.writeText(`¡Mira esto! ${product.url}`);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
   }, [product]);
 
   const { data, isLoading, error } = useQuery({
@@ -393,7 +466,6 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
         ? [product.image]
         : [];
 
-  // Precargar imágenes del álbum en cuanto llegan
   useEffect(() => {
     if (!data?.images?.length) return;
     const preloaders = data.images.map((src) => {
@@ -405,7 +477,6 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
     return () => preloaders.forEach((img) => { img.src = ""; });
   }, [data?.images]);
 
-  // Sincronizar miniatura activa con el carrusel
   useEffect(() => {
     if (!api) return;
     const sync = () => setCurrent(api.selectedScrollSnap());
@@ -420,14 +491,11 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
     };
   }, [api]);
 
-  // Auto-scroll de la tira de miniaturas
   const thumbsRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const strip = thumbsRef.current;
     if (!strip) return;
-    const active = strip.querySelector<HTMLButtonElement>(
-      `button[data-thumb-idx="${current}"]`
-    );
+    const active = strip.querySelector<HTMLButtonElement>(`button[data-thumb-idx="${current}"]`);
     active?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
   }, [current]);
 
@@ -437,11 +505,11 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
   const price = product ? getPrice(product) : 0;
 
   return (
-    <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={!!baseProp} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-4xl border-border bg-card p-0">
         {product && (
           <>
-            {/*  Carrusel  */}
+            {/* Carrusel */}
             <div className="relative bg-background">
               {isLoading ? (
                 <div className="flex aspect-square items-center justify-center sm:aspect-[4/3]">
@@ -470,9 +538,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                             referrerPolicy="no-referrer"
                             loading="lazy"
                             className="max-h-full max-w-full object-contain"
-                            onError={(e) => {
-                              e.currentTarget.style.opacity = "0.2";
-                            }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.2"; }}
                           />
                         </div>
                       </CarouselItem>
@@ -490,34 +556,27 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                 </Carousel>
               )}
 
-              {/* Botones flotantes sobre el carrusel */}
               <div className="absolute right-3 top-3 z-10 flex gap-2">
                 <button
                   onClick={shareProduct}
                   aria-label="Compartir producto"
                   className="grid h-9 w-9 place-items-center rounded-full bg-background/80 shadow backdrop-blur transition hover:bg-background"
                 >
-                  {copied ? (
-                    <Check className="h-4 w-4 text-emerald-500" />
-                  ) : (
-                    <Share2 className="h-4 w-4 text-foreground" />
-                  )}
+                  {copied
+                    ? <Check className="h-4 w-4 text-emerald-500" />
+                    : <Share2 className="h-4 w-4 text-foreground" />}
                 </button>
                 <button
-                  onClick={() => onToggleFav(product.id)}
+                  onClick={() => onToggleFav(baseProp!.id)}
                   aria-label={isFav ? "Quitar de favoritos" : "Añadir a favoritos"}
                   className="grid h-9 w-9 place-items-center rounded-full bg-background/80 shadow backdrop-blur transition hover:bg-background"
                 >
-                  <Heart
-                    className={`h-4 w-4 transition ${
-                      isFav ? "fill-primary text-primary" : "text-foreground"
-                    }`}
-                  />
+                  <Heart className={`h-4 w-4 transition ${isFav ? "fill-primary text-primary" : "text-foreground"}`} />
                 </button>
               </div>
             </div>
 
-            {/* ── Miniaturas ── */}
+            {/* Miniaturas */}
             <div
               ref={thumbsRef}
               className="flex min-h-[72px] items-center gap-2 overflow-x-auto border-b border-border bg-card/40 px-6 py-3 scrollbar-thin scroll-smooth"
@@ -531,11 +590,6 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                 <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-destructive">
                   <ImageOff className="h-3 w-3" />
                   Error al cargar el álbum
-                </div>
-              ) : data && (!data.images || data.images.length === 0) ? (
-                <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                  <ImageOff className="h-3 w-3" />
-                  Sin imágenes detectadas
                 </div>
               ) : images.length > 1 ? (
                 images.map((src, i) => (
@@ -563,7 +617,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
               ) : null}
             </div>
 
-            {/* ── Info + checkout ── */}
+            {/* Info + checkout */}
             <div className="border-t border-border p-6">
               <DialogHeader className="text-left">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -574,10 +628,7 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                     {product.category}
                   </Badge>
                   {canReserve && (
-                    <Badge
-                      variant="outline"
-                      className="border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
-                    >
+                    <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-600">
                       {isRetro(product) ? `Retro · ${PRICE_RETRO} €` : `Temporada actual · ${PRICE_CURRENT} €`}
                     </Badge>
                   )}
@@ -590,7 +641,18 @@ export function ProductModal({ product, onClose, isFav, onToggleFav }: Props) {
                 </DialogDescription>
               </DialogHeader>
 
-              {/* Sección de reserva (solo fútbol) */}
+              {/* ── Selector de variantes de color ── */}
+              {baseProp && (
+                <VariantSelector
+                  product={baseProp}
+                  onSelectVariant={(v) => {
+                    setActiveVariant(v);
+                    setCurrent(0);
+                  }}
+                />
+              )}
+
+              {/* Sección de reserva */}
               {canReserve && (
                 <div className="mt-5 rounded-lg border border-border bg-background/60 p-4">
                   {step === "idle" && (
