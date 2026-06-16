@@ -4,9 +4,36 @@
   "compatibility_date": "2025-09-24",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./dist/server/server.js",
-  "assets": { "directory": "./dist/client", "binding": "ASSETS" },
+
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS"
+  },
+
   "kv_namespaces": [
-    { "binding": "YUPOO_KV", "id": "e990d807bd2d4911aba9cd9d6e0cba8e" }
+    {
+      "binding": "YUPOO_KV",
+      "id": "e990d807bd2d4911aba9cd9d6e0cba8e"
+    }
   ],
-  "observability": { "enabled": true }
+
+  "images": {
+    "binding": "IMAGES"
+  },
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
 }
