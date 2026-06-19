@@ -36,56 +36,194 @@ const SIZE_NAMES = new Set([
   "square", "origin", "original", "full", "hd", "raw",
 ]);
 
+// ─── Paginación por catálogo ──────────────────────────────────────────────────
+//
+// Yupoo pagina los álbumes con ?tab=gallery&page=N. No conocemos de antemano
+// cuántas páginas tiene un catálogo, así que pedimos "todas las que tenga":
+// vamos avanzando página a página y nos detenemos en cuanto una página no
+// aporta ningún álbum nuevo (o falla). MAX_PAGES_SAFETY es solo un techo de
+// seguridad para que un catálogo con un bug no nos deje pidiendo páginas para
+// siempre — en la práctica casi ningún catálogo de Yupoo llega ahí.
+const MAX_PAGES_SAFETY = 20;
+const MAX_PRODUCTS_PER_CATALOG = 600;
+
+// ─── Matching de keywords con límites de palabra ──────────────────────────────
+//
+// Usar `.includes()` para keywords cortas es frágil: "hat" matchea dentro de
+// "whatsapp", "link" dentro de "blinker", "top" dentro de "laptop", "ua"
+// dentro de "agua", etc. Para evitarlo, exigimos que la keyword aparezca
+// como palabra (o secuencia de palabras) completa, delimitada por algo que
+// no sea una letra/dígito a cada lado. Para keywords multi-palabra ("air max")
+// los espacios internos ya actúan como separador, así que solo hace falta
+// proteger los extremos.
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const wordBoundaryRegexCache = new Map<string, RegExp>();
+
+function matchesKeyword(haystack: string, keyword: string): boolean {
+  let re = wordBoundaryRegexCache.get(keyword);
+  if (!re) {
+    re = new RegExp(`(?<![a-z0-9])${escapeRegExp(keyword)}(?![a-z0-9])`, "i");
+    wordBoundaryRegexCache.set(keyword, re);
+  }
+  return re.test(haystack);
+}
+
+function matchesAnyKeyword(haystack: string, keywords: string[]): boolean {
+  return keywords.some((kw) => matchesKeyword(haystack, kw));
+}
+
 // ─── Keywords para detección de categoría por título ─────────────────────────
+//
+// "shirt" es deliberadamente ambiguo (aparece en fútbol Y como parte de
+// t-shirt/polo shirt/dress shirt), así que NO va en la lista de fútbol;
+// en su lugar lo tratamos como señal débil en hasFootballShirt() más abajo,
+// que solo cuenta si además hay contexto futbolero (equipo, liga, temporada...).
 
 const CATEGORY_KEYWORDS: { category: Category; keywords: string[] }[] = [
   {
     category: "futbol",
-    keywords: ["jersey", "camiseta", "football", "soccer", "kit", "maillot", "calcio",
-      "bundesliga", "laliga", "premier", "serie a", "ligue", "champions", "world cup",
-      "national team", "selección", "shirt"],
+    keywords: ["jersey", "camiseta de futbol", "camiseta futbol", "football",
+      "soccer", "kit", "maillot", "calcio", "bundesliga", "laliga", "premier",
+      "serie a", "ligue 1", "champions league", "world cup", "national team",
+      "seleccion", "panshirt", "pan shirt"],
   },
   {
     category: "zapatillas",
     keywords: ["jordan", "nike", "adidas", "yeezy", "dunk", "aj1", "aj4", "aj11",
       "air max", "air force", "new balance", "nb", "asics", "puma", "reebok",
-      "sneaker", "zapatilla", "shoe", "trainer", "boost", "foam", "runner",
-      "350", "380", "500", "990", "574", "550", "990v", "1080", "2002",
-      "vans", "converse", "chuck", "ultraboost", "nmd", "ozweego",
-      "off white", "travis", "fragment"],
+      "under armour", "sneaker", "zapatilla", "zapatillas", "shoe", "shoes",
+      "trainer", "trainers", "boost", "runner", "350", "380", "500", "990",
+      "574", "550", "990v", "1080", "2002", "vans", "converse", "chuck",
+      "ultraboost", "nmd", "ozweego", "off white", "travis scott", "fragment",
+      "balenciaga track", "balenciaga triple", "balenciaga speed", "triple s",
+      "speed trainer", "mule", "slide", "slides", "slipper", "boot", "boots",
+      "bota", "botas", "clog", "clogs", "prada americas", "prada cloudbust",
+      "prada monolith", "mary jane", "loafer", "loafers", "mocasin", "cleats",
+      "botin", "botines", "vapormax", "pegasus", "react", "cortez", "blazer",
+      "terrex"],
   },
   {
     category: "invierno",
-    keywords: ["jacket", "coat", "puffer", "down", "winter", "fleece", "hoodie",
-      "sweatshirt", "sudadera", "chaqueta", "abrigo", "parka", "windbreaker",
-      "anorak", "vest", "gilet", "norte face", "north face", "arcteryx",
+    keywords: ["jacket", "coat", "puffer", "down jacket", "winter", "fleece",
+      "hoodie", "sweatshirt", "sudadera", "chaqueta", "abrigo", "parka",
+      "windbreaker", "anorak", "vest", "gilet", "north face", "arcteryx",
       "canada goose", "moncler", "stone island"],
   },
   {
     category: "ropa",
     keywords: ["tshirt", "t-shirt", "tee", "polo", "shorts", "pants", "jeans",
-      "denim", "cargo", "trousers", "top", "sweat", "tracksuit", "jogger",
-      "hoodie", "crewneck", "long sleeve", "boxy", "oversized"],
+      "denim", "cargo", "trousers", "sweat", "tracksuit", "jogger", "joggers",
+      "crewneck", "long sleeve", "boxy", "oversized", "sudadera", "pantalon",
+      "bermuda", "falda", "vestido", "dress", "skirt"],
   },
   {
     category: "accesorios",
-    keywords: ["bag", "backpack", "cap", "hat", "belt", "wallet", "watch",
+    keywords: ["bag", "backpack", "cap", "belt", "wallet", "watch",
       "sunglasses", "socks", "scarf", "gloves", "keychain", "bracelet",
-      "necklace", "ring", "earring", "bolso", "gorra", "cinturón",
+      "necklace", "ring", "earring", "bolso", "gorra", "cinturon",
       "calcetines", "bufanda"],
   },
 ];
 
+// Marcas/modelos de zapatilla "fuertes": si aparecen, ganan sobre cualquier
+// keyword de ropa aunque el título también mencione hoodie/tshirt/etc.
+const STRONG_SNEAKER_MARKERS = [
+  "jordan", "dunk", "yeezy", "samba", "aj1", "aj4", "aj11", "air max",
+  "air force", "vapormax", "pegasus", "cortez", "blazer", "ultraboost", "nmd",
+];
+
+// Keywords de ROPA que, en ausencia de un marcador fuerte de sneaker, deben
+// ganar la clasificación (para que un "Nike Tech Hoodie" no acabe en zapatillas
+// solo por mencionar "nike").
+const CLOTHING_OVERRIDE_KEYWORDS = [
+  "hoodie", "sudadera", "tshirt", "t-shirt", "polo", "sweater", "sweatshirt",
+  "pants", "pantalon", "jeans", "denim", "shorts", "bermuda", "falda",
+  "vestido", "dress", "skirt", "abrigo", "coat",
+];
+
+// Señales de que un "shirt" suelto sí es una camiseta de fútbol y no un polo,
+// dress shirt, etc. Si el título contiene "shirt" Y alguna de estas señales,
+// se clasifica como fútbol; si no, "shirt" no cuenta para nada.
+const FOOTBALL_CONTEXT_MARKERS = [
+  "home", "away", "third", "kit", "fc", "cf", "real madrid", "barcelona",
+  "psg", "manchester", "liverpool", "chelsea", "arsenal", "juventus",
+  "bayern", "milan", "national team", "seleccion", "world cup", "champions",
+  "premier", "laliga", "bundesliga", "calcio", "ligue 1", "serie a",
+];
+
+function hasFootballShirt(lower: string): boolean {
+  if (!matchesKeyword(lower, "shirt")) return false;
+  return matchesAnyKeyword(lower, FOOTBALL_CONTEXT_MARKERS);
+}
+
 function detectCategory(title: string, defaultCategory: Category): Category {
   const lower = title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-  for (const { category, keywords } of CATEGORY_KEYWORDS) {
-    for (const kw of keywords) {
-      if (lower.includes(kw)) return category;
+  let detected: Category | null = null;
+
+  if (hasFootballShirt(lower)) {
+    detected = "futbol";
+  } else {
+    for (const { category, keywords } of CATEGORY_KEYWORDS) {
+      if (matchesAnyKeyword(lower, keywords)) {
+        detected = category;
+        break;
+      }
     }
   }
 
-  return defaultCategory;
+  if (detected === "zapatillas") {
+    const hasStrongSneaker = matchesAnyKeyword(lower, STRONG_SNEAKER_MARKERS);
+    const hasClothingOverride = matchesAnyKeyword(lower, CLOTHING_OVERRIDE_KEYWORDS);
+    if (hasClothingOverride && !hasStrongSneaker) {
+      return "ropa";
+    }
+  }
+
+  // Caso especial: en pandashoesx (catálogo "default = zapatillas") si el
+  // título es claramente ropa y no hay marcador fuerte de sneaker, reclasificar.
+  if (
+    !detected &&
+    defaultCategory === "zapatillas" &&
+    matchesAnyKeyword(lower, CLOTHING_OVERRIDE_KEYWORDS) &&
+    !matchesAnyKeyword(lower, STRONG_SNEAKER_MARKERS)
+  ) {
+    return "ropa";
+  }
+
+  return detected ?? defaultCategory;
+}
+
+// ─── Filtro de álbumes que NO son productos ───────────────────────────────────
+//
+// En catálogos reales aparecen álbumes que no son productos: "contáctanos",
+// "normas de la tienda", "link a otro catálogo", códigos QR, anuncios, etc.
+// Los detectamos por palabras clave típicas de ese tipo de contenido (en
+// varios idiomas, ya que muchos vendedores son chinos) y los descartamos.
+
+const NON_PRODUCT_KEYWORDS = [
+  // contacto / vendedor
+  "contact", "contacto", "contactanos", "contáctanos", "whatsapp", "wechat",
+  "telegram", "kakao", "线上", "联系", "微信", "客服", "customer service",
+  // normas / instrucciones
+  "rule", "rules", "norma", "normas", "instruction", "instrucciones",
+  "notice", "announcement", "anuncio", "aviso", "how to order", "como comprar",
+  "cómo comprar", "shipping", "envio", "envío", "policy", "política",
+  // navegación / enlaces a otras partes del catálogo
+  "more catalog", "more catalogue", "other catalog", "otros catalogos",
+  "otros catálogos", "click here", "haz clic", "link", "enlace", "更多",
+  "目录", "qr code", "código qr", "codigo qr", "scan", "escanea",
+  // genérico de "no es un producto real"
+  "welcome", "bienvenido", "bienvenida", "vip", "guide", "guia", "guía",
+  "size chart", "tabla de tallas", "measurement", "medidas",
+];
+
+function isNonProductAlbum(title: string): boolean {
+  const lower = title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return matchesAnyKeyword(lower, NON_PRODUCT_KEYWORDS);
 }
 
 // ─── Agrupación de variantes de color ────────────────────────────────────────
@@ -304,10 +442,7 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
   return items;
 }
 
-async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]> {
-  const apiKey = process.env.FIRECRAWL_API_KEY;
-  if (!apiKey) throw new Error("FIRECRAWL_API_KEY not configured");
-
+async function fetchCatalogPageHtml(pageUrl: string, apiKey: string): Promise<string | null> {
   const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
     method: "POST",
     headers: {
@@ -315,7 +450,7 @@ async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]>
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      url: catalog.url,
+      url: pageUrl,
       formats: ["html"],
       onlyMainContent: false,
       waitFor: 1500,
@@ -324,27 +459,75 @@ async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]>
 
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
-    console.error(`Firecrawl ${catalog.id} ${res.status}: ${txt.slice(0, 200)}`);
-    return [];
+    console.error(`Firecrawl ${pageUrl} ${res.status}: ${txt.slice(0, 200)}`);
+    return null;
   }
 
   const json = (await res.json()) as { data?: { html?: string } };
-  const html = json.data?.html;
-  if (!html) return [];
+  return json.data?.html ?? null;
+}
+
+/**
+ * Scrapea TODAS las páginas de un catálogo (?tab=gallery&page=1, 2, 3...),
+ * deteniéndose en cuanto una página no aporta ningún álbum nuevo (o falla),
+ * con un techo de seguridad para evitar bucles infinitos en catálogos rotos.
+ */
+async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]> {
+  const apiKey = process.env.FIRECRAWL_API_KEY;
+  if (!apiKey) throw new Error("FIRECRAWL_API_KEY not configured");
 
   const base = catalog.url.replace(/\/$/, "");
-  const albums = parseAlbums(html, base);
+  const seenAlbumUrls = new Set<string>();
+  const allAlbums: { title: string; url: string; image: string }[] = [];
 
-  return albums.slice(0, 80).map((a, i) => ({
-    id: `${catalog.id}-${i}-${a.url.slice(-20)}`,
-    title: a.title,
-    url: a.url,
-    image: a.image,
-    catalog: catalog.id,
-    catalogName: catalog.name,
-    // Detectar categoría por título; si no se reconoce, usar la del catálogo
-    category: detectCategory(a.title, catalog.defaultCategory),
-  }));
+  for (let page = 1; page <= MAX_PAGES_SAFETY; page++) {
+    const pageUrl = page === 1 ? base : `${base}/?tab=gallery&page=${page}`;
+    const html = await fetchCatalogPageHtml(pageUrl, apiKey);
+
+    if (!html) {
+      if (page === 1) {
+        // Si falla la PRIMERA página, no es "fin de catálogo": es un fallo
+        // real de scraping. Lanzamos para que se registre en errors[] en vez
+        // de desaparecer silenciosamente con 0 productos.
+        throw new Error(`No se pudo obtener la página 1 de ${catalog.name}`);
+      }
+      // Si falla una página posterior, lo tratamos como fin del catálogo
+      // (ya tenemos algo de contenido), pero lo dejamos constancia en logs.
+      console.error(`${catalog.name}: fallo en página ${page}, cortando paginación aquí`);
+      break;
+    }
+
+    const albums = parseAlbums(html, base);
+
+    let newCount = 0;
+    for (const a of albums) {
+      const key = a.url.split("?")[0];
+      if (seenAlbumUrls.has(key)) continue;
+      seenAlbumUrls.add(key);
+      allAlbums.push(a);
+      newCount++;
+    }
+
+    // Si la página no trajo NINGÚN álbum nuevo, ya llegamos al final del catálogo.
+    if (newCount === 0) break;
+
+    // Techo duro por catálogo, por si un catálogo es enorme.
+    if (allAlbums.length >= MAX_PRODUCTS_PER_CATALOG) break;
+  }
+
+  return allAlbums
+    .filter((a) => !isNonProductAlbum(a.title))
+    .slice(0, MAX_PRODUCTS_PER_CATALOG)
+    .map((a, i) => ({
+      id: `${catalog.id}-${i}-${a.url.slice(-20)}`,
+      title: a.title,
+      url: a.url,
+      image: a.image,
+      catalog: catalog.id,
+      catalogName: catalog.name,
+      // Detectar categoría por título; si no se reconoce, usar la del catálogo
+      category: detectCategory(a.title, catalog.defaultCategory),
+    }));
 }
 
 function normalizeTitleKey(t: string): string {
@@ -388,7 +571,9 @@ function dedupeProducts(products: Product[]): Product[] {
 
 // ─── Caché KV ─────────────────────────────────────────────────────────────────
 
-const CACHE_KEY = "yupoo-products-v4"; // v4: no agrupa títulos genéricos como variantes
+// v5: paginación completa por catálogo + filtro de álbumes que no son
+// productos (contacto, normas, links a otras partes del catálogo, etc.)
+const CACHE_KEY = "yupoo-products-v5";
 const CACHE_TTL_MS = 60 * 60 * 1000;
 
 async function getFromKV(): Promise<{ products: Product[]; errors: string[]; fetchedAt: string } | null> {
@@ -426,7 +611,7 @@ export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
       return cached;
     }
 
-    console.log("Cache miss — scraping Firecrawl...");
+    console.log("Cache miss — scraping Firecrawl (todas las páginas por catálogo)...");
     const results = await Promise.allSettled(CATALOGS.map((c) => scrapeOne(c)));
 
     const products: Product[] = [];
@@ -435,6 +620,7 @@ export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
     results.forEach((r, i) => {
       if (r.status === "fulfilled") {
         products.push(...r.value);
+        console.log(`${CATALOGS[i].name}: ${r.value.length} álbumes válidos`);
       } else {
         errors.push(`${CATALOGS[i].name}: ${String(r.reason)}`);
       }
