@@ -39,11 +39,13 @@ const SIZE_NAMES = new Set([
 // ─── Paginación por catálogo ──────────────────────────────────────────────────
 //
 // Yupoo pagina los álbumes con ?tab=gallery&page=N. No conocemos de antemano
-// cuántas páginas tiene un catálogo, así que pedimos "todas las que tenga":
-// vamos avanzando página a página y nos detenemos en cuanto una página no
-// aporta ningún álbum nuevo (o falla). MAX_PAGES_SAFETY es solo un techo de
-// seguridad para que un catálogo con un bug no nos deje pidiendo páginas para
-// siempre — en la práctica casi ningún catálogo de Yupoo llega ahí.
+// cuántas páginas tiene un catálogo, así que pedimos "todas las que tenga",
+// pero en LOTES en paralelo (en vez de una por una) para que la latencia de
+// red no se acumule de forma secuencial. PAGE_BATCH_SIZE páginas se piden a
+// la vez con Promise.all; si el lote entero no aporta álbumes nuevos, paramos.
+// MAX_PAGES_SAFETY es un techo de seguridad para que un catálogo con un bug
+// no nos deje pidiendo páginas para siempre.
+const PAGE_BATCH_SIZE = 4;
 const MAX_PAGES_SAFETY = 20;
 const MAX_PRODUCTS_PER_CATALOG = 600;
 
@@ -453,7 +455,12 @@ async function fetchCatalogPageHtml(pageUrl: string, apiKey: string): Promise<st
       url: pageUrl,
       formats: ["html"],
       onlyMainContent: false,
-      waitFor: 1500,
+      // Las páginas de galería de Yupoo son HTML servido directo (no SPA),
+      // así que no necesitan esperar a que cargue JS — quitar waitFor aquí
+      // es la optimización de velocidad más grande posible.
+      // maxAge permite a Firecrawl servir desde SU propia caché si scrapeó
+      // esta misma URL hace poco (10 min), evitando un scrape fresco entero.
+      maxAge: 10 * 60 * 1000,
     }),
   });
 
@@ -468,9 +475,12 @@ async function fetchCatalogPageHtml(pageUrl: string, apiKey: string): Promise<st
 }
 
 /**
+/**
  * Scrapea TODAS las páginas de un catálogo (?tab=gallery&page=1, 2, 3...),
- * deteniéndose en cuanto una página no aporta ningún álbum nuevo (o falla),
- * con un techo de seguridad para evitar bucles infinitos en catálogos rotos.
+ * pidiéndolas en LOTES en paralelo (PAGE_BATCH_SIZE a la vez) en vez de una
+ * por una, para que la latencia de red no se acumule de forma secuencial.
+ * Se detiene en cuanto un lote completo no aporta ningún álbum nuevo, o al
+ * llegar al techo de seguridad.
  */
 async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
@@ -480,39 +490,69 @@ async function scrapeOne(catalog: (typeof CATALOGS)[number]): Promise<Product[]>
   const seenAlbumUrls = new Set<string>();
   const allAlbums: { title: string; url: string; image: string }[] = [];
 
-  for (let page = 1; page <= MAX_PAGES_SAFETY; page++) {
-    const pageUrl = page === 1 ? base : `${base}/?tab=gallery&page=${page}`;
-    const html = await fetchCatalogPageHtml(pageUrl, apiKey);
+  const pageUrl = (page: number) => (page === 1 ? base : `${base}/?tab=gallery&page=${page}`);
 
-    if (!html) {
-      if (page === 1) {
-        // Si falla la PRIMERA página, no es "fin de catálogo": es un fallo
-        // real de scraping. Lanzamos para que se registre en errors[] en vez
-        // de desaparecer silenciosamente con 0 productos.
-        throw new Error(`No se pudo obtener la página 1 de ${catalog.name}`);
-      }
-      // Si falla una página posterior, lo tratamos como fin del catálogo
-      // (ya tenemos algo de contenido), pero lo dejamos constancia en logs.
-      console.error(`${catalog.name}: fallo en página ${page}, cortando paginación aquí`);
+  let nextPage = 1;
+  let firstPageFailed = false;
+
+  while (nextPage <= MAX_PAGES_SAFETY) {
+    const batchPages = Array.from(
+      { length: Math.min(PAGE_BATCH_SIZE, MAX_PAGES_SAFETY - nextPage + 1) },
+      (_, i) => nextPage + i,
+    );
+
+    const batchResults = await Promise.all(
+      batchPages.map(async (page) => ({
+        page,
+        html: await fetchCatalogPageHtml(pageUrl(page), apiKey),
+      })),
+    );
+
+    if (batchResults[0]?.page === 1 && !batchResults[0].html) {
+      // Si falla la PRIMERA página, no es "fin de catálogo": es un fallo real
+      // de scraping. Lanzamos para que se registre en errors[] en vez de
+      // desaparecer silenciosamente con 0 productos.
+      firstPageFailed = true;
       break;
     }
 
-    const albums = parseAlbums(html, base);
+    let newCountInBatch = 0;
+    let hitEmptyPage = false;
 
-    let newCount = 0;
-    for (const a of albums) {
-      const key = a.url.split("?")[0];
-      if (seenAlbumUrls.has(key)) continue;
-      seenAlbumUrls.add(key);
-      allAlbums.push(a);
-      newCount++;
+    for (const { page, html } of batchResults) {
+      if (!html) {
+        console.error(`${catalog.name}: fallo en página ${page}, ignorando esa página`);
+        continue;
+      }
+
+      const albums = parseAlbums(html, base);
+      let newInPage = 0;
+      for (const a of albums) {
+        const key = a.url.split("?")[0];
+        if (seenAlbumUrls.has(key)) continue;
+        seenAlbumUrls.add(key);
+        allAlbums.push(a);
+        newInPage++;
+      }
+      newCountInBatch += newInPage;
+      if (newInPage === 0) hitEmptyPage = true;
     }
 
-    // Si la página no trajo NINGÚN álbum nuevo, ya llegamos al final del catálogo.
-    if (newCount === 0) break;
+    nextPage += batchPages.length;
 
-    // Techo duro por catálogo, por si un catálogo es enorme.
+    // Si todo el lote no aportó álbumes nuevos, ya llegamos al final del catálogo.
+    if (newCountInBatch === 0) break;
+
+    // Si alguna página del lote vino vacía, lo más probable es que el final
+    // del catálogo caiga dentro de este lote: no merece la pena seguir
+    // pidiendo lotes completos extra por una sola página con contenido al final.
+    if (hitEmptyPage && allAlbums.length > 0) break;
+
     if (allAlbums.length >= MAX_PRODUCTS_PER_CATALOG) break;
+  }
+
+  if (firstPageFailed) {
+    throw new Error(`No se pudo obtener la página 1 de ${catalog.name}`);
   }
 
   return allAlbums
