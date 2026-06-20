@@ -399,18 +399,37 @@ function imageQualityScore(src: string): number {
   return 3;
 }
 
+// Limpia texto de título: colapsa espacios/saltos de línea, recorta basura típica de Yupoo
+function cleanTitleText(raw: string): string {
+  return decodeEntities(raw)
+    .replace(/<[^>]+>/g, " ") // por si quedó algún tag suelto dentro
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function parseAlbums(html: string, base: string): { title: string; url: string; image: string }[] {
   const items: { title: string; url: string; image: string }[] = [];
   const seen = new Set<string>();
 
+  // Paso 1: localizar cada <a class="...album__main..."> COMPLETO junto con su contenido,
+  // capturando la etiqueta de apertura entera por separado del contenido interno.
+  // Esto evita el bug de extraer href/title con un único regex encadenado, donde un
+  // cuantificador perezoso podía saltarse el atributo title= aunque estuviera presente.
   const blockRegex =
-    /<a\b[^>]*class="[^"]*\balbum__main\b[^"]*"[^>]*href="([^"]+)"[^>]*?(?:title="([^"]*)")?[^>]*>([\s\S]*?)<\/a>/gi;
+    /<a\b[^>]*class="[^"]*\balbum__main\b[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
 
   let m: RegExpExecArray | null;
   while ((m = blockRegex.exec(html)) !== null) {
-    const href = decodeEntities(m[1]);
-    let title = decodeEntities((m[2] || "").trim());
-    const inner = m[3];
+    const openingTag = m[0].slice(0, m[0].indexOf(">") + 1);
+    const inner = m[1];
+    const blockEndIndex = blockRegex.lastIndex; // posición justo después del </a> capturado
+
+    const hrefMatch = openingTag.match(/\bhref="([^"]+)"/i);
+    if (!hrefMatch) continue;
+    const href = decodeEntities(hrefMatch[1]);
+
+    const titleAttrMatch = openingTag.match(/\btitle="([^"]*)"/i);
+    let title = titleAttrMatch ? decodeEntities(titleAttrMatch[1].trim()) : "";
 
     const imgMatch =
       inner.match(/data-src="([^"]+)"/i) ||
@@ -423,14 +442,36 @@ function parseAlbums(html: string, base: string): { title: string; url: string; 
     if (image.startsWith("/")) image = base + image;
     if (/im_photo_album|avatar|logo|qrcode|favicon|sprite|loading_icon/i.test(image)) continue;
 
+    // 1) Si no había title= útil, buscar dentro del propio <a> (estructura "todo en un bloque")
     if (!title) {
       const titleMatch =
         inner.match(/album__main_title[^>]*>\s*([^<]+?)\s*</i) ||
-        inner.match(/\btitle="([^"]+)"/i) ||
         inner.match(/<h[1-6][^>]*>\s*([^<]+?)\s*<\/h[1-6]>/i) ||
         inner.match(/<span[^>]*>\s*([^<]+?)\s*<\/span>/i);
-      if (titleMatch) title = decodeEntities(titleMatch[1].trim());
+      if (titleMatch) title = cleanTitleText(titleMatch[1].trim());
     }
+
+    // 2) Estructura real más común de Yupoo: el título vive en un elemento HERMANO
+    // que viene justo DESPUÉS del </a> de album__main (no anidado dentro de él), p.ej.
+    // <a class="album__main">...img...</a><a class="album__main_title">Nombre</a>
+    // o <div class="album__main_box"><a class="album__main">...</a><span class="album__main_title">Nombre</span></div>
+    if (!title) {
+      const tail = html.slice(blockEndIndex, blockEndIndex + 600); // ventana corta tras el cierre del <a>
+      const siblingMatch =
+        tail.match(/^\s*<a[^>]*class="[^"]*album__main_title[^"]*"[^>]*>\s*([^<]+?)\s*<\/a>/i) ||
+        tail.match(/^\s*<(?:span|div|p)[^>]*class="[^"]*(?:album__main_title|album__title|title)[^"]*"[^>]*>\s*([^<]+?)\s*<\/(?:span|div|p)>/i) ||
+        tail.match(/class="[^"]*album__main_title[^"]*"[^>]*>\s*([^<]+?)\s*</i);
+      if (siblingMatch) title = cleanTitleText(siblingMatch[1]);
+    }
+
+    // 3) Fallback final: usar el alt= de la imagen, que Yupoo suele rellenar con el nombre del álbum
+    if (!title) {
+      const altMatch = inner.match(/<img[^>]*\salt="([^"]+)"/i);
+      if (altMatch && altMatch[1].trim() && !/^image$|^img$|^photo$/i.test(altMatch[1].trim())) {
+        title = cleanTitleText(altMatch[1]);
+      }
+    }
+
     if (!title) title = "Álbum";
 
     const url = href.startsWith("http") ? href : base + href;
