@@ -6,7 +6,7 @@ import { Search, ExternalLink, Heart, Moon, Sun, RefreshCw, Layers } from "lucid
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { fetchAllProducts, CATALOGS, type Product } from "@/lib/yupoo.functions";
+import { fetchAllProducts, CATALOGS, productMatchesQuery, type Product } from "@/lib/yupoo.functions";
 import { proxyImageUrl } from "@/lib/image-proxy";
 import { ProductModal } from "@/components/ProductModal";
 import heroImg from "@/assets/hero.jpg";
@@ -96,15 +96,7 @@ function Index() {
     return products.filter((p) => {
       if (showFavs && !favs.includes(p.id)) return false;
       if (cat !== "all" && p.category !== cat) return false;
-      if (!query) return true;
-      const q = query.toLowerCase();
-      return (
-        p.title.toLowerCase().includes(q) ||
-        p.catalogName.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q) ||
-        // también buscar en títulos de variantes
-        (p.variants?.some((v) => v.title.toLowerCase().includes(q)) ?? false)
-      );
+      return productMatchesQuery(p, query);
     });
   }, [products, query, cat, favs, showFavs]);
 
