@@ -77,6 +77,67 @@ function matchesAnyKeyword(haystack: string, keywords: string[]): boolean {
   return keywords.some((kw) => matchesKeyword(haystack, kw));
 }
 
+// ─── Tolerancia a censura de marcas (N*ke, Adi-das, A.D.I.D.A.S...) ───────────
+//
+// Muchos vendedores de Yupoo censuran nombres de marca para evitar baneos
+// automáticos, de dos formas distintas:
+//   a) SUSTITUYENDO una letra por un símbolo: "N*ke" (el asterisco OCUPA el
+//      lugar de la "i", no se inserta junto a ella)
+//   b) INSERTANDO separadores entre letras: "Adi-das", "A.D.I.D.A.S", "N I K E"
+//
+// Una keyword censurada deja de ser un substring literal del título, así que
+// matchesKeyword (que exige coincidencia exacta) nunca la encuentra.
+//
+// En vez de "limpiar" el título de forma genérica (arriesgado: podría fusionar
+// palabras que no debían fusionarse, p.ej. "mid-top" -> "midtop"), construimos
+// para cada keyword CONOCIDA varias variantes de regex: la literal, más una
+// variante por cada posición donde esa letra concreta se sustituye por un
+// comodín de censura. Limitamos a "como mucho 1 letra sustituida" para evitar
+// que keywords largas generen demasiados falsos positivos (si permitiéramos
+// sustituir 2+ letras libremente, casi cualquier palabra de longitud similar
+// acabaría matcheando). Así solo reconocemos variantes censuradas de marcas
+// que ya están en nuestros diccionarios, sin riesgo de "inventar" coincidencias
+// falsas en otras zonas del título.
+const tolerantRegexCache = new Map<string, RegExp>();
+
+const CENSOR_SEPARATOR = `[\\s*_\\-.]{0,1}`; // separador opcional INSERTADO entre letras
+const CENSOR_WILDCARD = `[*_\\-.]`; // símbolo que SUSTITUYE una letra
+
+function buildTolerantAlternatives(keyword: string): string[] {
+  const chars = keyword.replace(/\s+/g, "").split("");
+  // Variante 0: todas las letras literales, solo con separadores insertados opcionales
+  const literal = chars.map((c) => escapeRegExp(c)).join(CENSOR_SEPARATOR);
+  const variants = [literal];
+  // Una variante por cada posición de letra sustituida por comodín de censura
+  for (let i = 0; i < chars.length; i++) {
+    const withWildcard = chars
+      .map((c, idx) => (idx === i ? CENSOR_WILDCARD : escapeRegExp(c)))
+      .join(CENSOR_SEPARATOR);
+    variants.push(withWildcard);
+  }
+  return variants;
+}
+
+function matchesKeywordTolerant(haystack: string, keyword: string): boolean {
+  // Para evitar falsos positivos en keywords muy cortas (2-3 letras, p.ej.
+  // "nb", "l", "m") la tolerancia a censura solo se aplica a partir de 4
+  // caracteres; por debajo de eso exigimos coincidencia exacta de palabra.
+  if (keyword.replace(/\s+/g, "").length < 4) {
+    return matchesKeyword(haystack, keyword);
+  }
+  let re = tolerantRegexCache.get(keyword);
+  if (!re) {
+    const alternatives = buildTolerantAlternatives(keyword);
+    re = new RegExp(`(?<![a-z0-9])(?:${alternatives.join("|")})(?![a-z0-9])`, "i");
+    tolerantRegexCache.set(keyword, re);
+  }
+  return re.test(haystack);
+}
+
+function matchesAnyKeywordTolerant(haystack: string, keywords: string[]): boolean {
+  return keywords.some((kw) => matchesKeywordTolerant(haystack, kw));
+}
+
 // ─── Keywords para detección de categoría por título ─────────────────────────
 //
 // "shirt" es deliberadamente ambiguo (aparece en fútbol Y como parte de
@@ -141,7 +202,7 @@ const STRONG_SNEAKER_MARKERS = [
 // ganar la clasificación (para que un "Nike Tech Hoodie" no acabe en zapatillas
 // solo por mencionar "nike").
 const CLOTHING_OVERRIDE_KEYWORDS = [
-  "hoodie", "sudadera", "tshirt", "t-shirt", "polo", "sweater", "sweatshirt",
+  "hoodie", "sudadera", "tshirt", "t-shirt", "tee", "polo", "sweater", "sweatshirt",
   "pants", "pantalon", "jeans", "denim", "shorts", "bermuda", "falda",
   "vestido", "dress", "skirt", "abrigo", "coat",
 ];
@@ -156,9 +217,39 @@ const FOOTBALL_CONTEXT_MARKERS = [
   "premier", "laliga", "bundesliga", "calcio", "ligue 1", "serie a",
 ];
 
+// Nombres de club/selección reales: muchos títulos de camiseta de fútbol en
+// Yupoo NO incluyen "shirt"/"jersey"/"kit" en absoluto (p.ej. "Real Madrid
+// Home 23/24" o "PSG 24/25"), así que un nombre de equipo conocido + un
+// patrón de temporada (23/24, 2023-24, 24-25...) es señal suficiente por sí
+// sola, sin necesitar la palabra "shirt".
+const FOOTBALL_TEAM_NAMES = [
+  "real madrid", "barcelona", "barca", "atletico madrid", "atletico de madrid",
+  "sevilla", "valencia", "real sociedad", "athletic bilbao", "villarreal",
+  "psg", "paris saint germain", "marseille", "lyon", "monaco",
+  "manchester united", "manchester city", "liverpool", "chelsea", "arsenal",
+  "tottenham", "newcastle", "everton", "aston villa", "west ham",
+  "bayern munich", "bayern", "dortmund", "borussia dortmund", "leipzig",
+  "juventus", "milan", "inter milan", "ac milan", "napoli", "roma", "lazio",
+  "ajax", "psv", "porto", "benfica", "sporting",
+  "brazil", "brasil", "argentina", "francia", "france", "alemania", "germany",
+  "españa", "espana", "spain", "italia", "italy", "portugal", "inglaterra",
+  "england", "holanda", "netherlands", "belgica", "belgium",
+];
+
+// Patrón de temporada futbolística: 23/24, 2023/24, 23-24, 2023-2024, etc.
+const SEASON_PATTERN = /\b(20)?\d{2}[\/\-](20)?\d{2}\b/;
+
 function hasFootballShirt(lower: string): boolean {
-  if (!matchesKeyword(lower, "shirt")) return false;
-  return matchesAnyKeyword(lower, FOOTBALL_CONTEXT_MARKERS);
+  if (matchesKeyword(lower, "shirt")) {
+    return matchesAnyKeyword(lower, FOOTBALL_CONTEXT_MARKERS);
+  }
+  // Sin la palabra "shirt": un nombre de equipo/selección conocido combinado
+  // con un patrón de temporada (23/24, 2023-24...) es suficiente para
+  // clasificar como fútbol aunque el título no diga "jersey"/"kit"/"shirt".
+  if (SEASON_PATTERN.test(lower) && matchesAnyKeyword(lower, FOOTBALL_TEAM_NAMES)) {
+    return true;
+  }
+  return false;
 }
 
 function detectCategory(title: string, defaultCategory: Category): Category {
@@ -170,7 +261,7 @@ function detectCategory(title: string, defaultCategory: Category): Category {
     detected = "futbol";
   } else {
     for (const { category, keywords } of CATEGORY_KEYWORDS) {
-      if (matchesAnyKeyword(lower, keywords)) {
+      if (matchesAnyKeywordTolerant(lower, keywords)) {
         detected = category;
         break;
       }
@@ -178,8 +269,8 @@ function detectCategory(title: string, defaultCategory: Category): Category {
   }
 
   if (detected === "zapatillas") {
-    const hasStrongSneaker = matchesAnyKeyword(lower, STRONG_SNEAKER_MARKERS);
-    const hasClothingOverride = matchesAnyKeyword(lower, CLOTHING_OVERRIDE_KEYWORDS);
+    const hasStrongSneaker = matchesAnyKeywordTolerant(lower, STRONG_SNEAKER_MARKERS);
+    const hasClothingOverride = matchesAnyKeywordTolerant(lower, CLOTHING_OVERRIDE_KEYWORDS);
     if (hasClothingOverride && !hasStrongSneaker) {
       return "ropa";
     }
@@ -190,8 +281,8 @@ function detectCategory(title: string, defaultCategory: Category): Category {
   if (
     !detected &&
     defaultCategory === "zapatillas" &&
-    matchesAnyKeyword(lower, CLOTHING_OVERRIDE_KEYWORDS) &&
-    !matchesAnyKeyword(lower, STRONG_SNEAKER_MARKERS)
+    matchesAnyKeywordTolerant(lower, CLOTHING_OVERRIDE_KEYWORDS) &&
+    !matchesAnyKeywordTolerant(lower, STRONG_SNEAKER_MARKERS)
   ) {
     return "ropa";
   }
@@ -797,3 +888,44 @@ export const fetchAlbumImages = createServerFn({ method: "POST" })
     const images = parseAlbumImages(html);
     return { images };
   });
+
+// ─── Búsqueda tolerante a censura (para usar en el cliente) ──────────────────
+//
+// La búsqueda del usuario en index.tsx hacía .includes() literal, así que si
+/**
+ * Comprueba si un producto coincide con una búsqueda de texto libre, tolerando
+ * marcas censuradas con asteriscos/guiones/puntos/espacios sueltos (p.ej. la
+ * query "nike" encuentra títulos como "N*ke Air Force 1" o "N-I-K-E Dunk").
+ * Pensado para usarse tal cual en el filtro de la grilla de productos del cliente.
+ */
+export function productMatchesQuery(
+  product: Pick<Product, "title" | "catalogName" | "category"> & {
+    variants?: { title: string }[];
+  },
+  query: string
+): boolean {
+  const q = query.trim();
+  if (!q) return true;
+
+  const haystacks = [
+    product.title,
+    product.catalogName,
+    product.category,
+    ...(product.variants?.map((v) => v.title) ?? []),
+  ];
+
+  const normalize = (s: string) =>
+    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  // 1) Coincidencia literal simple (rápida, cubre el 95% de los casos)
+  const qLower = normalize(q);
+  if (haystacks.some((h) => normalize(h).includes(qLower))) return true;
+
+  // 2) Si no hubo match literal, cada palabra de la query se busca con el
+  // mismo matcher tolerante a censura usado en la detección de categoría
+  // (soporta tanto censura insertada "N-I-K-E" como letra sustituida "N*ke").
+  const words = qLower.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+
+  return words.every((word) => haystacks.some((h) => matchesKeywordTolerant(normalize(h), word)));
+}
