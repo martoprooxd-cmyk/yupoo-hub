@@ -9,6 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { fetchAllProducts, CATALOGS, productMatchesQuery, type Product } from "@/lib/yupoo.functions";
 import { proxyImageUrl } from "@/lib/image-proxy";
 import { ProductModal } from "@/components/ProductModal";
+import { CartProvider } from "@/lib/CartContext";
+import { CartDrawer } from "@/components/CartDrawer";
+import { OrderHistoryProvider } from "@/lib/OrderHistoryContext";
+import { OrderHistoryDrawer } from "@/components/OrderHistoryDrawer";
 import heroImg from "@/assets/hero.jpg";
 import sneakersImg from "@/assets/cat-sneakers.jpg";
 import clothesImg from "@/assets/cat-clothes.jpg";
@@ -45,6 +49,16 @@ const CATEGORIES: { id: Exclude<Category, "all">; label: string; image: string }
 ];
 
 function Index() {
+  return (
+    <CartProvider>
+      <OrderHistoryProvider>
+        <IndexContent />
+      </OrderHistoryProvider>
+    </CartProvider>
+  );
+}
+
+function IndexContent() {
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState<Category>("all");
   const [dark, setDark] = useState(true);
@@ -140,6 +154,8 @@ function Index() {
             <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Cambiar tema">
               {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
+            <CartDrawer />
+            <OrderHistoryDrawer />
           </div>
         </div>
       </header>
