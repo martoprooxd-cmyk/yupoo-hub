@@ -14,6 +14,11 @@
     {
       "binding": "YUPOO_KV",
       "id": "e990d807bd2d4911aba9cd9d6e0cba8e"
+"d1_databases": [{
+  "binding": "DB",
+  "database_name": "vault-orders",
+  "database_id": "PEGA_AQUI_EL_ID_DEL_PASO_1"
+}]
     }
   ],
 
