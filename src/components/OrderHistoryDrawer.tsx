@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { ClipboardList, X, Copy, Check, Instagram, Trash2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ClipboardList, X, Copy, Check, Instagram, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useOrderHistory } from "@/lib/OrderHistoryContext";
+import { RecoverOrdersPanel } from "@/components/RecoverOrdersPanel";
 import type { OrderProof } from "@/lib/orderCode";
 
 const INSTAGRAM_HANDLE = "tu_proveedor_de_confi";
@@ -110,6 +112,7 @@ function OrderRow({ order, onRemove }: { order: OrderProof; onRemove: () => void
 
 export function OrderHistoryDrawer() {
   const [open, setOpen] = useState(false);
+  const [showRecover, setShowRecover] = useState(false);
   const { orders, removeOrder, clearHistory } = useOrderHistory();
 
   return (
@@ -129,58 +132,80 @@ export function OrderHistoryDrawer() {
         )}
       </Button>
 
-      {open && (
-        <div className="fixed inset-0 z-[60] flex justify-end">
-          <button
-            aria-label="Cerrar historial"
-            onClick={() => setOpen(false)}
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-          />
-          <div className="relative flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border p-4">
-              <h2 className="text-lg font-black tracking-tight">
-                Mis pedidos{orders.length > 0 ? ` (${orders.length})` : ""}
-              </h2>
-              <button
-                onClick={() => setOpen(false)}
-                aria-label="Cerrar"
-                className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-muted"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4">
-              {orders.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
-                  <ClipboardList className="h-10 w-10 opacity-30" />
-                  <p className="text-sm">Aún no tienes pedidos</p>
-                  <p className="max-w-[200px] text-xs">
-                    Cuando completes un pago, tu código de pedido aparecerá aquí
-                  </p>
-                </div>
-              ) : (
-                <ul className="space-y-3">
-                  {orders.map((order) => (
-                    <OrderRow key={order.code} order={order} onRemove={() => removeOrder(order.code)} />
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {orders.length > 0 && (
-              <div className="border-t border-border p-4">
+      {open &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] flex justify-end">
+            <button
+              aria-label="Cerrar historial"
+              onClick={() => setOpen(false)}
+              className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            />
+            <div className="relative flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-xl">
+              <div className="flex items-center justify-between border-b border-border p-4">
+                <h2 className="text-lg font-black tracking-tight">
+                  Mis pedidos{orders.length > 0 ? ` (${orders.length})` : ""}
+                </h2>
                 <button
-                  onClick={clearHistory}
-                  className="w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => setOpen(false)}
+                  aria-label="Cerrar"
+                  className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-muted"
                 >
-                  Borrar historial
+                  <X className="h-4 w-4" />
                 </button>
               </div>
-            )}
-          </div>
-        </div>
-      )}
+
+              <div className="flex-1 overflow-y-auto p-4">
+                {orders.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-muted-foreground">
+                    <ClipboardList className="h-10 w-10 opacity-30" />
+                    <p className="text-sm">Aún no tienes pedidos</p>
+                    <p className="max-w-[200px] text-xs">
+                      Cuando completes un pago, tu código de pedido aparecerá aquí
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="space-y-3">
+                    {orders.map((order) => (
+                      <OrderRow key={order.code} order={order} onRemove={() => removeOrder(order.code)} />
+                    ))}
+                  </ul>
+                )}
+
+                {/* Recuperar pedidos desde otro dispositivo */}
+                <div className="mt-6 rounded-lg border border-border bg-muted/20 p-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowRecover(v => !v)}
+                    className="flex w-full items-center justify-between text-left text-xs font-semibold text-muted-foreground transition hover:text-foreground"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Search className="h-3.5 w-3.5" />
+                      ¿Pagaste desde otro dispositivo?
+                    </span>
+                    <span>{showRecover ? "▲" : "▼"}</span>
+                  </button>
+                  {showRecover && (
+                    <div className="mt-3">
+                      <RecoverOrdersPanel />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {orders.length > 0 && (
+                <div className="border-t border-border p-4">
+                  <button
+                    onClick={clearHistory}
+                    className="w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  >
+                    Borrar historial local
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   );
 }

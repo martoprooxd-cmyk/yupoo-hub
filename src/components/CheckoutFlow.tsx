@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { MapPin, CheckCircle2, Copy, Check, Instagram, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useCart, type CartItem } from "@/lib/CartContext";
 import { createOrderProof, type OrderProof, type OrderProofLine } from "@/lib/orderCode";
 import { useOrderHistory } from "@/lib/OrderHistoryContext";
+import { createOrderRecord } from "@/lib/orders.functions";
 
 const PAYPAL_CLIENT_ID = "TU_PAYPAL_CLIENT_ID_AQUI";
 const INSTAGRAM_HANDLE = "tu_proveedor_de_confi";
@@ -24,6 +26,7 @@ declare global {
 
 type ShippingAddress = {
   nombre: string;
+  contact: string; // email o teléfono: permite recuperar el historial de pedidos desde otro dispositivo
   direccion: string;
   ciudad: string;
   codigoPostal: string;
@@ -32,6 +35,7 @@ type ShippingAddress = {
 
 const EMPTY_ADDRESS: ShippingAddress = {
   nombre: "",
+  contact: "",
   direccion: "",
   ciudad: "",
   codigoPostal: "",
@@ -53,6 +57,7 @@ function ShippingForm({
 }) {
   const isValid =
     address.nombre.trim() &&
+    address.contact.trim().length >= 6 && // al menos algo parecido a un email/teléfono real
     address.direccion.trim() &&
     address.ciudad.trim() &&
     address.codigoPostal.trim() &&
@@ -79,6 +84,10 @@ function ShippingForm({
   return (
     <div className="space-y-3">
       {field("nombre", "Nombre completo", "Juan García")}
+      {field("contact", "Email o teléfono", "tu@email.com o +34 600 000 000")}
+      <p className="-mt-2 text-[11px] text-muted-foreground">
+        Lo usamos para que puedas recuperar tus pedidos desde cualquier dispositivo
+      </p>
       {field("direccion", "Dirección", "Calle Mayor 12, 3º B")}
       <div className="flex gap-3">
         {field("ciudad", "Ciudad", "Barcelona", true)}
@@ -255,7 +264,7 @@ function PayPalCartStep({
 
 // ─── Pantalla final: código de pedido + instrucciones de Instagram ───────────
 
-function OrderProofScreen({ proof }: { proof: OrderProof }) {
+function OrderProofScreen({ proof, saveFailed }: { proof: OrderProof; saveFailed?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   const copyCode = async () => {
@@ -281,6 +290,13 @@ function OrderProofScreen({ proof }: { proof: OrderProof }) {
           Para confirmar tu reserva, envía este código por Instagram junto con dos imágenes.
         </p>
       </div>
+
+      {saveFailed && (
+        <p className="w-full rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-600">
+          ⚠️ Guarda este código aparte: no pudimos sincronizarlo con el servidor, así que no podrás
+          recuperarlo automáticamente más tarde.
+        </p>
+      )}
 
       <div className="w-full rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 p-4">
         <p className="font-mono text-2xl font-black tracking-wider text-primary">{proof.code}</p>
@@ -336,11 +352,13 @@ function OrderProofScreen({ proof }: { proof: OrderProof }) {
 export function CheckoutFlow({ onClose, onBack }: { onClose: () => void; onBack: () => void }) {
   const { items, totalPrice, totalItems, clearCart } = useCart();
   const { addOrder } = useOrderHistory();
+  const saveOrderRecord = useServerFn(createOrderRecord);
   const [step, setStep] = useState<Step>("address");
   const [address, setAddress] = useState<ShippingAddress>(EMPTY_ADDRESS);
   const [proof, setProof] = useState<OrderProof | null>(null);
+  const [serverSaveFailed, setServerSaveFailed] = useState(false);
 
-  const handlePaymentSuccess = () => {
+  const handlePaymentSuccess = async () => {
     // Construir el snapshot de líneas ANTES de vaciar el carrito, ya que
     // clearCart() borra 'items' y necesitamos guardar el detalle en el historial.
     const lines: OrderProofLine[] = items.map((item) => ({
@@ -352,9 +370,35 @@ export function CheckoutFlow({ onClose, onBack }: { onClose: () => void; onBack:
     }));
     const newProof = createOrderProof(lines);
     setProof(newProof);
-    addOrder(newProof);
+    addOrder(newProof); // historial local (localStorage), siempre funciona, no depende de red
     clearCart();
     setStep("done");
+
+    // Guardado en el servidor (D1): permite que TÚ veas todos los pedidos en el
+    // panel admin y que el comprador los recupere desde otro dispositivo. Es
+    // "best effort": el comprador ya pagó y ya tiene su código en pantalla, así
+    // que un fallo de red aquí no debe bloquear ni romper la confirmación.
+    try {
+      await saveOrderRecord({
+        data: {
+          code: newProof.code,
+          contact: address.contact,
+          address: {
+            nombre: address.nombre,
+            direccion: address.direccion,
+            ciudad: address.ciudad,
+            codigoPostal: address.codigoPostal,
+            pais: address.pais,
+          },
+          totalItems: newProof.totalItems,
+          totalPrice: newProof.totalPrice,
+          lines,
+        },
+      });
+    } catch (err) {
+      console.error("[VAULT] No se pudo guardar el pedido en el servidor:", err);
+      setServerSaveFailed(true);
+    }
   };
 
   // Si el carrito se vacía externamente (p.ej. el usuario borra todo) antes
@@ -400,7 +444,7 @@ export function CheckoutFlow({ onClose, onBack }: { onClose: () => void; onBack:
 
       {step === "done" && proof && (
         <>
-          <OrderProofScreen proof={proof} />
+          <OrderProofScreen proof={proof} saveFailed={serverSaveFailed} />
           <div className="border-t border-border p-4">
             <Button variant="outline" className="w-full" onClick={onClose}>
               Cerrar
