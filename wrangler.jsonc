@@ -4,29 +4,26 @@
   "compatibility_date": "2025-09-24",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./dist/server/server.js",
-
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS"
   },
-
   "kv_namespaces": [
     {
       "binding": "YUPOO_KV",
       "id": "e990d807bd2d4911aba9cd9d6e0cba8e"
-"d1_databases": [
-{
-  "binding": "DB",
-  "database_name": "vault-orders",
-  "database_id": "d50d0598-84c9-4acd-b9b9-b675dc15b133"
-}]
     }
   ],
-
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vault-orders",
+      "database_id": "d50d0598-84c9-4acd-b9b9-b675dc15b133"
+    }
+  ],
   "images": {
     "binding": "IMAGES"
   },
-
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
