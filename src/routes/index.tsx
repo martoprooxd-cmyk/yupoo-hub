@@ -281,13 +281,18 @@ function IndexContent() {
         </div>
 
         {isLoading ? (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div
-                key={i}
-                className="skeleton-shimmer aspect-[3/4] rounded-sm border border-border"
-              />
-            ))}
+          <div>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="skeleton-shimmer aspect-[3/4] rounded-sm border border-border"
+                />
+              ))}
+            </div>
+            <p className="mt-6 text-center text-xs text-muted-foreground animate-pulse">
+              Cargando catálogos de Yupoo por primera vez… puede tardar hasta 1 minuto
+            </p>
           </div>
         ) : error ? (
           <div className="rounded-sm border border-destructive/40 bg-destructive/10 p-8 text-center">
