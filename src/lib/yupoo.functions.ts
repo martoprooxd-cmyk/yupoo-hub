@@ -742,76 +742,125 @@ function dedupeProducts(products: Product[]): Product[] {
 }
 
 // ─── Caché KV ─────────────────────────────────────────────────────────────────
-
+//
 // v5: paginación completa por catálogo + filtro de álbumes que no son
 // productos (contacto, normas, links a otras partes del catálogo, etc.)
-const CACHE_KEY = "yupoo-products-v5";
-const CACHE_TTL_MS = 60 * 60 * 1000;
+//
+// IMPORTANTE: los bindings de Cloudflare (KV, D1, etc.) se acceden vía
+// request.context.cloudflare.env en TanStack Start con Vite. El patrón
+// globalThis.YUPOO_KV NO funciona de forma fiable con el plugin de Vite de
+// Cloudflare y causa que el caché nunca se lea ni se escriba, forzando un
+// scraping de Firecrawl en cada request (~1 minuto bloqueante).
 
-async function getFromKV(): Promise<{ products: Product[]; errors: string[]; fetchedAt: string } | null> {
+const CACHE_KEY = "yupoo-products-v5";
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora: sirve del caché si tiene menos de 1h
+const CACHE_STALE_MS = 6 * 60 * 60 * 1000; // 6 horas: máximo que se muestra dato "stale"
+
+type CacheEnv = { YUPOO_KV?: KVNamespace; cloudflare?: { ctx?: ExecutionContext } };
+
+// Tipos mínimos de KV/ExecutionContext para compilar fuera del runtime de Cloudflare
+interface KVNamespace {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string, opts?: { expirationTtl?: number }): Promise<void>;
+}
+interface ExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
+function getKVEnv(request: Request): { kv: KVNamespace | null; ctx: ExecutionContext | null } {
   try {
-    // @ts-expect-error YUPOO_KV binding de Cloudflare
-    const kv = globalThis.YUPOO_KV;
-    if (!kv) return null;
+    const cf = (request as unknown as { context?: { cloudflare?: { env?: CacheEnv; ctx?: ExecutionContext } } }).context?.cloudflare;
+    return {
+      kv: cf?.env?.YUPOO_KV ?? null,
+      ctx: cf?.ctx ?? null,
+    };
+  } catch {
+    return { kv: null, ctx: null };
+  }
+}
+
+type ProductCache = { products: Product[]; errors: string[]; fetchedAt: string };
+
+async function getFromKV(kv: KVNamespace): Promise<{ data: ProductCache; stale: boolean } | null> {
+  try {
     const raw = await kv.get(CACHE_KEY);
     if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (Date.now() - new Date(data.fetchedAt).getTime() < CACHE_TTL_MS) return data;
-    return null;
+    const data = JSON.parse(raw) as ProductCache;
+    const age = Date.now() - new Date(data.fetchedAt).getTime();
+    if (age > CACHE_STALE_MS) return null; // demasiado viejo, ignorar
+    return { data, stale: age > CACHE_TTL_MS };
   } catch {
     return null;
   }
 }
 
-async function saveToKV(data: { products: Product[]; errors: string[]; fetchedAt: string }): Promise<void> {
+async function saveToKV(kv: KVNamespace, data: ProductCache): Promise<void> {
   try {
-    // @ts-expect-error YUPOO_KV binding de Cloudflare
-    const kv = globalThis.YUPOO_KV;
-    if (!kv) return;
     await kv.put(CACHE_KEY, JSON.stringify(data), { expirationTtl: 7200 });
   } catch (e) {
     console.error("KV write error:", e);
   }
 }
 
-export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
-  async (): Promise<{ products: Product[]; errors: string[]; fetchedAt: string }> => {
+async function runScraping(): Promise<ProductCache> {
+  console.log("Scraping Firecrawl (todas las páginas por catálogo)...");
+  const results = await Promise.allSettled(CATALOGS.map((c) => scrapeOne(c)));
+  const products: Product[] = [];
+  const errors: string[] = [];
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") {
+      products.push(...r.value);
+      console.log(`${CATALOGS[i].name}: ${r.value.length} álbumes válidos`);
+    } else {
+      errors.push(`${CATALOGS[i].name}: ${String(r.reason)}`);
+    }
+  });
+  const deduped = dedupeProducts(products);
+  const grouped = groupVariants(deduped);
+  return { products: grouped, errors, fetchedAt: new Date().toISOString() };
+}
 
-    const cached = await getFromKV();
-    if (cached) {
-      console.log("Serving from KV cache, fetchedAt:", cached.fetchedAt);
-      return cached;
+export const fetchAllProducts = createServerFn({ method: "GET" }).handler(
+  async ({ request }): Promise<ProductCache> => {
+    const { kv, ctx } = getKVEnv(request);
+
+    if (kv) {
+      const cached = await getFromKV(kv);
+
+      if (cached && !cached.stale) {
+        // Caché fresco (< 1h): respuesta instantánea, no scrapeamos nada
+        console.log("KV cache hit (fresh), fetchedAt:", cached.data.fetchedAt);
+        return cached.data;
+      }
+
+      if (cached && cached.stale) {
+        // Caché stale (1-6h): devolvemos los datos viejos INMEDIATAMENTE
+        // y revalidamos en background para que la próxima visita ya tenga datos frescos.
+        // El usuario ve los productos al instante en vez de esperar 1 minuto.
+        console.log("KV cache stale — sirviendo datos viejos, revalidando en background...");
+        if (ctx) {
+          ctx.waitUntil(
+            runScraping().then((fresh) => saveToKV(kv, fresh)).catch(console.error)
+          );
+        } else {
+          // Sin ctx (dev local), revalidar igualmente en background sin bloquear
+          runScraping().then((fresh) => saveToKV(kv, fresh)).catch(console.error);
+        }
+        return cached.data;
+      }
+
+      // Caché completamente vacío (primera carga o KV purgado):
+      // scrapeamos, guardamos, y devolvemos. Es la única vez que el usuario espera.
+      // En producción esto solo pasa una vez cada 6h máximo.
+      console.log("KV cache miss — scraping inicial (solo ocurre una vez cada 6h)...");
+      const fresh = await runScraping();
+      await saveToKV(kv, fresh);
+      return fresh;
     }
 
-    console.log("Cache miss — scraping Firecrawl (todas las páginas por catálogo)...");
-    const results = await Promise.allSettled(CATALOGS.map((c) => scrapeOne(c)));
-
-    const products: Product[] = [];
-    const errors: string[] = [];
-
-    results.forEach((r, i) => {
-      if (r.status === "fulfilled") {
-        products.push(...r.value);
-        console.log(`${CATALOGS[i].name}: ${r.value.length} álbumes válidos`);
-      } else {
-        errors.push(`${CATALOGS[i].name}: ${String(r.reason)}`);
-      }
-    });
-
-    // 1. Deduplicar por URL/imagen/título exacto
-    const deduped = dedupeProducts(products);
-
-    // 2. Agrupar variantes de color/versión del mismo modelo
-    const grouped = groupVariants(deduped);
-
-    const data = {
-      products: grouped,
-      errors,
-      fetchedAt: new Date().toISOString(),
-    };
-
-    await saveToKV(data);
-    return data;
+    // Sin KV (entorno local sin wrangler): scraping directo sin caché
+    console.log("Sin KV binding (dev local) — scraping directo...");
+    return runScraping();
   }
 );
 
