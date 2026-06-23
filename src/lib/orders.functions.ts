@@ -1,21 +1,18 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { OrderProofLine } from "@/lib/orderCode";
 
-// El binding D1 se importa desde "cloudflare:workers", NO desde process.env.
-// Es un binding por-request, así que se accede dentro de cada handler, nunca
-// a nivel de módulo (si se intenta fuera del contexto de una request falla).
-// Requiere en wrangler.jsonc:
-//   "d1_databases": [{ "binding": "DB", "database_name": "...", "database_id": "..." }]
-async function getDb() {
-  const { env } = await import("cloudflare:workers");
-  const db = (env as unknown as { DB?: D1Database }).DB;
-  if (!db) throw new Error("D1 binding 'DB' no configurado. Revisa wrangler.jsonc.");
-  return db;
+// Accedemos a D1 vía request.context.cloudflare.env, que es el patrón
+// correcto para TanStack Start + Cloudflare Workers. NO usar
+// import { env } from "cloudflare:workers" — ese import solo existe en
+// runtime y rompe el build de Vite/Rollup.
+function getDb(request: Request) {
+  const ctx = (request as unknown as { context?: { cloudflare?: { env?: { DB?: D1Database; ADMIN_PASSWORD?: string } } } }).context;
+  const env = ctx?.cloudflare?.env;
+  if (!env?.DB) throw new Error("D1 binding 'DB' no configurado. Revisa wrangler.jsonc.");
+  return { db: env.DB, adminPassword: env.ADMIN_PASSWORD ?? "" };
 }
 
-// Tipos mínimos de D1 (Cloudflare los provee globalmente en producción, pero
-// los declaramos aquí para que el proyecto compile también fuera de un
-// entorno con @cloudflare/workers-types instalado).
+// Tipos mínimos de D1 para compilación fuera del runtime de Cloudflare.
 interface D1Database {
   prepare(query: string): D1PreparedStatement;
 }
@@ -25,6 +22,8 @@ interface D1PreparedStatement {
   all<T = unknown>(): Promise<{ results: T[] }>;
   first<T = unknown>(): Promise<T | null>;
 }
+
+type OrderStatus = "pending" | "verified" | "shipped";
 
 type OrderRow = {
   code: string;
@@ -39,7 +38,7 @@ type OrderRow = {
   total_items: number;
   total_price: number;
   lines_json: string;
-  status: "pending" | "verified" | "shipped";
+  status: OrderStatus;
 };
 
 export type StoredOrder = {
@@ -56,7 +55,7 @@ export type StoredOrder = {
   totalItems: number;
   totalPrice: number;
   lines: OrderProofLine[];
-  status: "pending" | "verified" | "shipped";
+  status: OrderStatus;
 };
 
 function rowToOrder(row: OrderRow): StoredOrder {
@@ -64,11 +63,7 @@ function rowToOrder(row: OrderRow): StoredOrder {
   try {
     const parsed = JSON.parse(row.lines_json);
     if (Array.isArray(parsed)) lines = parsed;
-  } catch {
-    // Si el JSON está corrupto, devolvemos el pedido igualmente con líneas
-    // vacías en vez de romper toda la lista por un único registro malo.
-    lines = [];
-  }
+  } catch { lines = []; }
   return {
     code: row.code,
     createdAt: row.created_at,
@@ -87,13 +82,11 @@ function rowToOrder(row: OrderRow): StoredOrder {
   };
 }
 
-// Normaliza el contacto (email o teléfono) para que mayúsculas/espacios no
-// generen "personas" distintas en la búsqueda: "Juan@Mail.com" === "juan@mail.com".
 function normalizeContact(contact: string): string {
   return contact.trim().toLowerCase().replace(/\s+/g, "");
 }
 
-// ─── Crear pedido (llamado al completar el pago en CheckoutFlow) ─────────────
+// ─── Crear pedido ────────────────────────────────────────────────────────────
 
 type CreateOrderInput = {
   code: string;
@@ -112,26 +105,22 @@ type CreateOrderInput = {
 
 export const createOrderRecord = createServerFn({ method: "POST" })
   .inputValidator((input: CreateOrderInput) => {
-    if (!input?.code || !/^VAULT-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(input.code)) {
+    if (!input?.code || !/^VAULT-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(input.code))
       throw new Error("Código de pedido inválido");
-    }
-    if (!input.contact || !input.contact.trim()) {
-      throw new Error("Contacto requerido");
-    }
-    if (!input.address?.nombre || !input.address?.direccion || !input.address?.ciudad) {
+    if (!input.contact?.trim()) throw new Error("Contacto requerido");
+    if (!input.address?.nombre || !input.address?.direccion || !input.address?.ciudad)
       throw new Error("Dirección incompleta");
-    }
-    if (!Array.isArray(input.lines) || input.lines.length === 0) {
+    if (!Array.isArray(input.lines) || input.lines.length === 0)
       throw new Error("El pedido no tiene líneas");
-    }
     return input;
   })
-  .handler(async ({ data }): Promise<{ ok: true }> => {
-    const db = await getDb();
+  .handler(async ({ data, request }): Promise<{ ok: true }> => {
+    const { db } = getDb(request);
     await db
       .prepare(
         `INSERT INTO orders
-         (code, created_at, contact_normalized, contact_display, nombre, direccion, ciudad, codigo_postal, pais, total_items, total_price, lines_json, status)
+         (code, created_at, contact_normalized, contact_display, nombre, direccion,
+          ciudad, codigo_postal, pais, total_items, total_price, lines_json, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
       )
       .bind(
@@ -152,15 +141,15 @@ export const createOrderRecord = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// ─── Buscar pedidos del comprador por contacto (recuperar historial en otro dispositivo) ───
+// ─── Buscar pedidos por contacto (comprador) ─────────────────────────────────
 
 export const getOrdersByContact = createServerFn({ method: "POST" })
   .inputValidator((input: { contact: string }) => {
-    if (!input?.contact || !input.contact.trim()) throw new Error("Contacto requerido");
+    if (!input?.contact?.trim()) throw new Error("Contacto requerido");
     return input;
   })
-  .handler(async ({ data }): Promise<{ orders: StoredOrder[] }> => {
-    const db = await getDb();
+  .handler(async ({ data, request }): Promise<{ orders: StoredOrder[] }> => {
+    const { db } = getDb(request);
     const { results } = await db
       .prepare(`SELECT * FROM orders WHERE contact_normalized = ? ORDER BY created_at DESC`)
       .bind(normalizeContact(data.contact))
@@ -168,44 +157,40 @@ export const getOrdersByContact = createServerFn({ method: "POST" })
     return { orders: results.map(rowToOrder) };
   });
 
-// ─── Panel admin: listar TODOS los pedidos (requiere contraseña) ─────────────
+// ─── Listar todos (admin) ────────────────────────────────────────────────────
 
 export const getAllOrders = createServerFn({ method: "POST" })
   .inputValidator((input: { password: string }) => {
     if (!input?.password) throw new Error("Contraseña requerida");
     return input;
   })
-  .handler(async ({ data }): Promise<{ orders: StoredOrder[] }> => {
-    const { env } = await import("cloudflare:workers");
-    const expected = (env as unknown as { ADMIN_PASSWORD?: string }).ADMIN_PASSWORD;
-    if (!expected) throw new Error("ADMIN_PASSWORD no configurado en el servidor");
-    if (data.password !== expected) throw new Error("Contraseña incorrecta");
-
-    const db = await getDb();
+  .handler(async ({ data, request }): Promise<{ orders: StoredOrder[] }> => {
+    const { db, adminPassword } = getDb(request);
+    if (!adminPassword) throw new Error("ADMIN_PASSWORD no configurado");
+    if (data.password !== adminPassword) throw new Error("Contraseña incorrecta");
     const { results } = await db
       .prepare(`SELECT * FROM orders ORDER BY created_at DESC LIMIT 500`)
       .all<OrderRow>();
     return { orders: results.map(rowToOrder) };
   });
 
-// ─── Panel admin: actualizar estado de un pedido (pending -> verified -> shipped) ───
+// ─── Actualizar estado (admin) ───────────────────────────────────────────────
 
 export const updateOrderStatus = createServerFn({ method: "POST" })
-  .inputValidator((input: { password: string; code: string; status: StoredOrder["status"] }) => {
+  .inputValidator((input: { password: string; code: string; status: OrderStatus }) => {
     if (!input?.password) throw new Error("Contraseña requerida");
     if (!input?.code) throw new Error("Código requerido");
-    if (!["pending", "verified", "shipped"].includes(input.status)) {
+    if (!["pending", "verified", "shipped"].includes(input.status))
       throw new Error("Estado inválido");
-    }
     return input;
   })
-  .handler(async ({ data }): Promise<{ ok: true }> => {
-    const { env } = await import("cloudflare:workers");
-    const expected = (env as unknown as { ADMIN_PASSWORD?: string }).ADMIN_PASSWORD;
-    if (!expected) throw new Error("ADMIN_PASSWORD no configurado en el servidor");
-    if (data.password !== expected) throw new Error("Contraseña incorrecta");
-
-    const db = await getDb();
-    await db.prepare(`UPDATE orders SET status = ? WHERE code = ?`).bind(data.status, data.code).run();
+  .handler(async ({ data, request }): Promise<{ ok: true }> => {
+    const { db, adminPassword } = getDb(request);
+    if (!adminPassword) throw new Error("ADMIN_PASSWORD no configurado");
+    if (data.password !== adminPassword) throw new Error("Contraseña incorrecta");
+    await db
+      .prepare(`UPDATE orders SET status = ? WHERE code = ?`)
+      .bind(data.status, data.code)
+      .run();
     return { ok: true };
   });
