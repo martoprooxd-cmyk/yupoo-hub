@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import {
   ExternalLink,
   Loader2,
@@ -145,11 +146,12 @@ export function ProductModal({ product: baseProp, onClose, isFav, onToggleFav }:
   const shareProduct = useCallback(async () => {
     if (!product) return;
     try {
-      await navigator.clipboard.writeText(`¡Mira esto! ${product.url}`);
+      await navigator.clipboard.writeText(product.url);
       setCopied(true);
+      toast.success("Enlace copiado al portapapeles");
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      /* ignore */
+      toast.error("No se pudo copiar el enlace");
     }
   }, [product]);
 
@@ -211,7 +213,7 @@ export function ProductModal({ product: baseProp, onClose, isFav, onToggleFav }:
 
   return (
     <Dialog open={!!baseProp} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl border-border bg-card p-0">
+      <DialogContent className="max-w-4xl border-border bg-card p-0 overflow-y-auto max-h-[90dvh]">
         {product && (
           <>
             {/* Carrusel */}
