@@ -1,18 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Search, ExternalLink, Heart, Moon, Sun, RefreshCw, Layers } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { fetchAllProducts, CATALOGS, productMatchesQuery, type Product } from "@/lib/yupoo.functions";
+import { fetchAllProducts, CATALOGS, type Product } from "@/lib/yupoo.functions";
+import { productMatchesQuery } from "@/lib/search";
 import { proxyImageUrl } from "@/lib/image-proxy";
 import { ProductModal } from "@/components/ProductModal";
 import { CartProvider } from "@/lib/CartContext";
 import { CartDrawer } from "@/components/CartDrawer";
 import { OrderHistoryProvider } from "@/lib/OrderHistoryContext";
 import { OrderHistoryDrawer } from "@/components/OrderHistoryDrawer";
+import { useInView } from "@/hooks/use-in-view";
 import heroImg from "@/assets/hero.jpg";
 import sneakersImg from "@/assets/cat-sneakers.jpg";
 import clothesImg from "@/assets/cat-clothes.jpg";
@@ -21,6 +23,8 @@ import winterImg from "@/assets/cat-winter.jpg";
 import accessoriesImg from "@/assets/cat-accessories.jpg";
 
 const OG_IMAGE_URL = `https://yupoo-hub.lovable.app${heroImg}`;
+const PAGE_SIZE = 48;
+const RECENTLY_VIEWED_KEY = "vault-recent";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -48,6 +52,89 @@ const CATEGORIES: { id: Exclude<Category, "all">; label: string; image: string }
   { id: "accesorios", label: "Accesorios", image: accessoriesImg },
 ];
 
+// ─── Tarjeta de producto con animación de entrada ────────────────────────────
+
+function ProductCard({
+  p,
+  index,
+  isFav,
+  onOpen,
+  onToggleFav,
+}: {
+  p: Product;
+  index: number;
+  isFav: boolean;
+  onOpen: (p: Product) => void;
+  onToggleFav: (id: string) => void;
+}) {
+  const { ref, inView } = useInView();
+
+  return (
+    <article
+      ref={ref as React.RefObject<HTMLElement>}
+      className={`group relative overflow-hidden rounded-sm border border-border bg-card transition-all duration-500 hover:border-primary ${
+        inView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+      }`}
+      style={{ transitionDelay: `${(index % 4) * 60}ms` }}
+    >
+      <button
+        type="button"
+        onClick={() => onOpen(p)}
+        className="block w-full text-left"
+      >
+        <div className="relative aspect-[3/4] overflow-hidden bg-muted">
+          <img
+            src={proxyImageUrl(p.image)}
+            alt={p.title}
+            loading={index < 8 ? "eager" : "lazy"}
+            // @ts-expect-error fetchpriority is valid HTML but not yet in React types
+            fetchpriority={index < 4 ? "high" : "auto"}
+            referrerPolicy="no-referrer"
+            className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
+            onError={(e) => {
+              e.currentTarget.style.opacity = "0.2";
+            }}
+          />
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/60 to-transparent p-3">
+            <p className="line-clamp-2 text-xs font-bold leading-tight">{p.title}</p>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {p.catalogName}
+            </p>
+          </div>
+        </div>
+      </button>
+
+      {/* Favorito */}
+      <button
+        onClick={() => onToggleFav(p.id)}
+        aria-label="Favorito"
+        className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-background/80 backdrop-blur transition hover:bg-background"
+      >
+        <Heart
+          className={`h-3.5 w-3.5 ${
+            isFav ? "fill-primary text-primary" : "text-foreground"
+          }`}
+        />
+      </button>
+
+      {/* Categoría + variantes */}
+      <div className="absolute left-2 top-2 flex flex-col gap-1">
+        <span className="rounded-sm bg-background/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur">
+          {CATEGORIES.find((x) => x.id === p.category)?.label.split(" ")[0]}
+        </span>
+        {p.variants && p.variants.length > 0 && (
+          <span className="flex items-center gap-0.5 rounded-sm bg-primary/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary-foreground backdrop-blur">
+            <Layers className="h-2.5 w-2.5" />
+            {p.variants.length + 1} col.
+          </span>
+        )}
+      </div>
+    </article>
+  );
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+
 function Index() {
   return (
     <CartProvider>
@@ -65,7 +152,10 @@ function IndexContent() {
   const [favs, setFavs] = useState<string[]>([]);
   const [showFavs, setShowFavs] = useState(false);
   const [selected, setSelected] = useState<Product | null>(null);
+  const [page, setPage] = useState(1);
+  const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
 
+  const searchRef = useRef<HTMLInputElement>(null);
   const fetchProducts = useServerFn(fetchAllProducts);
   const queryClient = useQueryClient();
 
@@ -76,9 +166,14 @@ function IndexContent() {
     gcTime: 2 * 60 * 60 * 1000,
   });
 
+  // ── Persistencia ────────────────────────────────────────────────────────────
   useEffect(() => {
-    const saved = localStorage.getItem("vault-favs");
-    if (saved) setFavs(JSON.parse(saved));
+    const savedFavs = localStorage.getItem("vault-favs");
+    if (savedFavs) setFavs(JSON.parse(savedFavs));
+
+    const savedRecent = localStorage.getItem(RECENTLY_VIEWED_KEY);
+    if (savedRecent) setRecentlyViewed(JSON.parse(savedRecent));
+
     const theme = localStorage.getItem("vault-theme");
     if (theme === "light") {
       setDark(false);
@@ -90,6 +185,33 @@ function IndexContent() {
     localStorage.setItem("vault-favs", JSON.stringify(favs));
   }, [favs]);
 
+  useEffect(() => {
+    localStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(recentlyViewed));
+  }, [recentlyViewed]);
+
+  // ── Reset página al cambiar filtros ─────────────────────────────────────────
+  useEffect(() => {
+    setPage(1);
+  }, [query, cat, showFavs]);
+
+  // ── Keyboard shortcuts ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Cmd/Ctrl+K → foco en búsqueda
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+      // Escape → limpiar búsqueda si no hay modal abierto
+      if (e.key === "Escape" && !selected && query) {
+        setQuery("");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selected, query]);
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
   const toggleTheme = () => {
     const next = !dark;
     setDark(next);
@@ -104,6 +226,15 @@ function IndexContent() {
     queryClient.invalidateQueries({ queryKey: ["yupoo-products"] });
   };
 
+  const openProduct = useCallback((p: Product) => {
+    setSelected(p);
+    setRecentlyViewed((prev) => {
+      const without = prev.filter((x) => x.id !== p.id);
+      return [p, ...without].slice(0, 8);
+    });
+  }, []);
+
+  // ── Filtrado y paginación ───────────────────────────────────────────────────
   const products = data?.products ?? [];
 
   const filtered = useMemo(() => {
@@ -114,15 +245,18 @@ function IndexContent() {
     });
   }, [products, query, cat, favs, showFavs]);
 
+  const paginated = useMemo(() => filtered.slice(0, page * PAGE_SIZE), [filtered, page]);
+
   const countByCat = useMemo(() => {
     const map: Record<string, number> = {};
     products.forEach((p) => (map[p.category] = (map[p.category] || 0) + 1));
     return map;
   }, [products]);
 
-  // Contar modelos únicos + variantes ocultas
   const totalModels = products.length;
   const totalVariants = products.reduce((acc, p) => acc + (p.variants?.length ?? 0), 0);
+
+  const hasActiveFilters = query || cat !== "all" || showFavs;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -195,9 +329,10 @@ function IndexContent() {
             <div className="relative">
               <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                ref={searchRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar producto, marca, catálogo…"
+                placeholder="Buscar producto, marca… (⌘K)"
                 className="h-14 border-border bg-card/80 pl-12 text-base backdrop-blur focus-visible:ring-primary"
               />
             </div>
@@ -210,10 +345,7 @@ function IndexContent() {
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => {
-                setCat("all");
-                setShowFavs(false);
-              }}
+              onClick={() => { setCat("all"); setShowFavs(false); }}
               className={`rounded-sm border px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
                 cat === "all" && !showFavs
                   ? "border-primary bg-primary text-primary-foreground"
@@ -228,10 +360,7 @@ function IndexContent() {
             {CATEGORIES.map((c) => (
               <button
                 key={c.id}
-                onClick={() => {
-                  setCat(c.id);
-                  setShowFavs(false);
-                }}
+                onClick={() => { setCat(c.id); setShowFavs(false); }}
                 className={`rounded-sm border px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
                   cat === c.id && !showFavs
                     ? "border-primary bg-primary text-primary-foreground"
@@ -259,6 +388,34 @@ function IndexContent() {
           </div>
         </div>
       </section>
+
+      {/* Vistos recientemente */}
+      {recentlyViewed.length > 0 && !hasActiveFilters && !isLoading && (
+        <section className="border-b border-border bg-card/20">
+          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+            <p className="mb-3 font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              Vistos recientemente
+            </p>
+            <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+              {recentlyViewed.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => openProduct(p)}
+                  className="shrink-0 w-24 rounded-sm border border-border overflow-hidden hover:border-primary transition"
+                >
+                  <img
+                    src={proxyImageUrl(p.image)}
+                    alt={p.title}
+                    referrerPolicy="no-referrer"
+                    className="aspect-square w-full object-contain bg-muted"
+                  />
+                  <p className="p-1.5 text-[10px] leading-tight line-clamp-2 text-left">{p.title}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Products grid */}
       <section id="productos" className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
@@ -303,72 +460,82 @@ function IndexContent() {
             </Button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-sm border border-dashed border-border p-16 text-center text-muted-foreground">
-            {showFavs ? "Aún no tienes favoritos." : "No hay resultados para tu búsqueda."}
+          /* ── Empty state mejorado ── */
+          <div className="flex flex-col items-center gap-4 py-20 text-center">
+            <div className="text-5xl">🔍</div>
+            <p className="text-lg font-bold">
+              {showFavs ? "Aún no tienes favoritos" : `Sin resultados para "${query}"`}
+            </p>
+            <p className="text-sm text-muted-foreground max-w-xs">
+              {showFavs
+                ? "Guarda productos con el corazón para verlos aquí"
+                : "Prueba con términos más simples o elimina algún filtro"}
+            </p>
+            <div className="flex flex-wrap justify-center gap-2 mt-2">
+              {query && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQuery("")}
+                >
+                  Limpiar búsqueda
+                </Button>
+              )}
+              {cat !== "all" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCat("all")}
+                >
+                  Ver en todas las categorías
+                </Button>
+              )}
+              {showFavs && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowFavs(false)}
+                >
+                  Ver todos los productos
+                </Button>
+              )}
+            </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
-            {filtered.map((p, i) => (
-              <article
-                key={p.id}
-                className="group relative overflow-hidden rounded-sm border border-border bg-card transition hover:border-primary"
-              >
-                <button
-                  type="button"
-                  onClick={() => setSelected(p)}
-                  className="block w-full text-left"
-                >
-                  <div className="relative aspect-[3/4] overflow-hidden bg-muted">
-                    <img
-                      src={proxyImageUrl(p.image)}
-                      alt={p.title}
-                      loading={i < 8 ? "eager" : "lazy"}
-                      // @ts-expect-error fetchpriority is valid HTML but not yet in React types
-                      fetchpriority={i < 4 ? "high" : "auto"}
-                      referrerPolicy="no-referrer"
-                      className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
-                      onError={(e) => {
-                        e.currentTarget.style.opacity = "0.2";
-                      }}
-                    />
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/60 to-transparent p-3">
-                      <p className="line-clamp-2 text-xs font-bold leading-tight">{p.title}</p>
-                      <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                        {p.catalogName}
-                      </p>
-                    </div>
-                  </div>
-                </button>
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+              {paginated.map((p, i) => (
+                <ProductCard
+                  key={p.id}
+                  p={p}
+                  index={i}
+                  isFav={favs.includes(p.id)}
+                  onOpen={openProduct}
+                  onToggleFav={toggleFav}
+                />
+              ))}
+            </div>
 
-                {/* Favorito */}
-                <button
-                  onClick={() => toggleFav(p.id)}
-                  aria-label="Favorito"
-                  className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-background/80 backdrop-blur transition hover:bg-background"
+            {/* Cargar más */}
+            {paginated.length < filtered.length && (
+              <div className="mt-10 flex flex-col items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => setPage((p) => p + 1)}
+                  className="border-border px-10"
                 >
-                  <Heart
-                    className={`h-3.5 w-3.5 ${
-                      favs.includes(p.id) ? "fill-primary text-primary" : "text-foreground"
-                    }`}
-                  />
-                </button>
-
-                {/* Categoría */}
-                <div className="absolute left-2 top-2 flex flex-col gap-1">
-                  <span className="rounded-sm bg-background/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur">
-                    {CATEGORIES.find((x) => x.id === p.category)?.label.split(" ")[0]}
+                  Cargar más{" "}
+                  <span className="ml-1.5 opacity-60">
+                    ({filtered.length - paginated.length} restantes)
                   </span>
-                  {/* Badge de variantes */}
-                  {p.variants && p.variants.length > 0 && (
-                    <span className="flex items-center gap-0.5 rounded-sm bg-primary/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary-foreground backdrop-blur">
-                      <Layers className="h-2.5 w-2.5" />
-                      {p.variants.length + 1} col.
-                    </span>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Mostrando {paginated.length} de {filtered.length}
+                </p>
+              </div>
+            )}
+          </>
         )}
 
         {data?.errors && data.errors.length > 0 && (
