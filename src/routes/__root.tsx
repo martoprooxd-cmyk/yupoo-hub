@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -76,6 +77,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "theme-color", content: "#0f0f0f" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "VAULT" },
       { title: "VAULT — Yupoo Catalog Hub" },
       {
         name: "description",
@@ -104,6 +106,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "dns-prefetch", href: "https://photo.yupoo.com" },
       { rel: "preconnect", href: "https://s.yupoo.com" },
       { rel: "dns-prefetch", href: "https://s.yupoo.com" },
+      { rel: "manifest", href: "/manifest.json" },
+      { rel: "icon", href: "/icon-192.png", type: "image/png" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
     ],
   }),
   shellComponent: RootShell,
@@ -129,6 +134,16 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  // Registro del Service Worker — mejora progresiva, nunca bloquea el render
+  // ni rompe nada si falla (navegadores sin soporte, entornos sin HTTPS, etc.)
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        // Silencioso: la PWA es una mejora progresiva, no algo crítico
+      });
+    }
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
