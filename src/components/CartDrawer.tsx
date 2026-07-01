@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { ShoppingCart, X, Minus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,27 +35,31 @@ export function CartDrawer() {
         )}
       </Button>
 
-      {/* Overlay + panel */}
-      {open && (
-        <div className="fixed inset-0 z-[60] flex justify-end">
-          <button
-            aria-label="Cerrar carrito"
-            onClick={close}
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-          />
-          <div className="relative flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border p-4">
-              <h2 className="text-lg font-black tracking-tight">
-                {checkingOut ? "Finalizar pedido" : `Carrito${totalItems > 0 ? ` (${totalItems})` : ""}`}
-              </h2>
-              <button
-                onClick={close}
-                aria-label="Cerrar"
-                className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-muted"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+      {/* Overlay + panel — createPortal a document.body: el header usa
+          backdrop-blur, que en varios navegadores crea un "containing block"
+          para elementos fixed, anclando el drawer al header en vez de al
+          viewport completo. El portal evita ese problema. */}
+      {open &&
+        createPortal(
+          <div className="fixed inset-0 z-[60] flex justify-end">
+            <button
+              aria-label="Cerrar carrito"
+              onClick={close}
+              className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            />
+            <div className="relative flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-xl">
+              <div className="flex items-center justify-between border-b border-border p-4">
+                <h2 className="text-lg font-black tracking-tight">
+                  {checkingOut ? "Finalizar pedido" : `Carrito${totalItems > 0 ? ` (${totalItems})` : ""}`}
+                </h2>
+                <button
+                  onClick={close}
+                  aria-label="Cerrar"
+                  className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-muted"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
 
             {checkingOut ? (
               <CheckoutFlow onClose={close} onBack={() => setCheckingOut(false)} />
@@ -82,11 +87,11 @@ export function CartDrawer() {
                           <div className="min-w-0 flex-1">
                             <p className="line-clamp-2 text-sm font-bold leading-tight">{item.title}</p>
                             <div className="mt-1 flex flex-wrap gap-1.5">
-                              <Badge variant="outline" className="border-border text-[10px] text-muted-foreground">
+                              <Badge variant="outline" className="border-border text-xs text-muted-foreground">
                                 Talla {item.size}
                               </Badge>
                               {item.variantTitle && (
-                                <Badge variant="outline" className="border-border text-[10px] text-muted-foreground">
+                                <Badge variant="outline" className="border-border text-xs text-muted-foreground">
                                   {item.variantTitle.slice(0, 20)}
                                 </Badge>
                               )}
@@ -140,7 +145,7 @@ export function CartDrawer() {
                     </Button>
                     <button
                       onClick={clearCart}
-                      className="mt-2 w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+                      className="mt-2 w-full text-center text-sm text-muted-foreground underline-offset-2 hover:underline"
                     >
                       Vaciar carrito
                     </button>
@@ -148,9 +153,10 @@ export function CartDrawer() {
                 )}
               </>
             )}
-          </div>
-        </div>
-      )}
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   );
 }
