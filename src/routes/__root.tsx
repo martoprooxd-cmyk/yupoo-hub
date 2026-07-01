@@ -99,10 +99,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
     ],
     links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
+      { rel: "stylesheet", href: appCss },
+      { rel: "preconnect", href: "https://photo.yupoo.com" },
+      { rel: "dns-prefetch", href: "https://photo.yupoo.com" },
+      { rel: "preconnect", href: "https://s.yupoo.com" },
+      { rel: "dns-prefetch", href: "https://s.yupoo.com" },
     ],
   }),
   shellComponent: RootShell,
