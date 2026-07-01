@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, ExternalLink, Heart, Moon, Sun, RefreshCw, Layers, ArrowUpDown, Sparkles } from "lucide-react";
+import { toast } from "sonner";
+import { Search, ExternalLink, Heart, Moon, Sun, RefreshCw, Layers, ArrowUpDown, Sparkles, Share2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +69,12 @@ const SORT_OPTIONS: { id: SortMode; label: string }[] = [
   { id: "catalog", label: "Por catálogo" },
 ];
 
+// Type guard en vez de "as SortMode": el parser acorn de TanStack Router
+// rompe con casts TS dentro de archivos de rutas.
+function isSortMode(value: string): value is SortMode {
+  return SORT_OPTIONS.some((opt) => opt.id === value);
+}
+
 // ─── Tarjeta de producto con animación de entrada + badge Nuevo ──────────────
 
 function ProductCard({
@@ -85,11 +92,11 @@ function ProductCard({
   onOpen: (p: Product) => void;
   onToggleFav: (id: string) => void;
 }) {
-  const { ref, inView } = useInView();
+  const { ref, inView } = useInView<HTMLElement>();
 
   return (
     <article
-      ref={ref as React.RefObject<HTMLElement>}
+      ref={ref}
       className={`group relative overflow-hidden rounded-sm border border-border bg-card transition-all duration-500 hover:border-primary ${
         inView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
       }`}
@@ -271,6 +278,17 @@ function IndexContent() {
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["yupoo-products"] });
+  };
+
+  const shareFavorites = async () => {
+    if (favs.length === 0) return;
+    const url = `${window.location.origin}/favs?ids=${favs.join(",")}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Enlace de tu lista de favoritos copiado");
+    } catch {
+      toast.error("No se pudo copiar el enlace");
+    }
   };
 
   const openProduct = useCallback((p: Product) => {
@@ -465,9 +483,24 @@ function IndexContent() {
               {favs.length > 0 && <span className="opacity-70">{favs.length}</span>}
             </button>
 
+            {showFavs && favs.length > 0 && (
+              <button
+                onClick={shareFavorites}
+                className="flex items-center gap-1.5 rounded-sm border border-border bg-card px-4 py-2 text-xs font-bold uppercase tracking-wider text-muted-foreground transition hover:border-primary hover:text-foreground"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                Compartir lista
+              </button>
+            )}
+
             {/* Selector de orden */}
             <div className="ml-auto flex items-center gap-2">
-              <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+              <Select
+                value={sortMode}
+                onValueChange={(v) => {
+                  if (isSortMode(v)) setSortMode(v);
+                }}
+              >
                 <SelectTrigger className="h-9 w-[160px] border-border bg-card text-xs font-bold uppercase tracking-wider">
                   <ArrowUpDown className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
                   <SelectValue />
