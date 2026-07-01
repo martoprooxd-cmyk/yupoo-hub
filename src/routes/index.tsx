@@ -2,10 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, ExternalLink, Heart, Moon, Sun, RefreshCw, Layers } from "lucide-react";
+import { Search, ExternalLink, Heart, Moon, Sun, RefreshCw, Layers, ArrowUpDown, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { fetchAllProducts, CATALOGS, type Product } from "@/lib/yupoo.functions";
 import { productMatchesQuery } from "@/lib/search";
 import { proxyImageUrl } from "@/lib/image-proxy";
@@ -25,6 +32,7 @@ import accessoriesImg from "@/assets/cat-accessories.jpg";
 const OG_IMAGE_URL = `https://yupoo-hub.lovable.app${heroImg}`;
 const PAGE_SIZE = 48;
 const RECENTLY_VIEWED_KEY = "vault-recent";
+const LAST_SEEN_IDS_KEY = "vault-last-seen-ids";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -43,6 +51,7 @@ export const Route = createFileRoute("/")({
 });
 
 type Category = "all" | "zapatillas" | "ropa" | "futbol" | "invierno" | "accesorios";
+type SortMode = "default" | "newest" | "alphabetical" | "catalog";
 
 const CATEGORIES: { id: Exclude<Category, "all">; label: string; image: string }[] = [
   { id: "zapatillas", label: "Zapatillas", image: sneakersImg },
@@ -52,18 +61,27 @@ const CATEGORIES: { id: Exclude<Category, "all">; label: string; image: string }
   { id: "accesorios", label: "Accesorios", image: accessoriesImg },
 ];
 
-// ─── Tarjeta de producto con animación de entrada ────────────────────────────
+const SORT_OPTIONS: { id: SortMode; label: string }[] = [
+  { id: "default", label: "Relevancia" },
+  { id: "newest", label: "Más nuevo" },
+  { id: "alphabetical", label: "Alfabético (A-Z)" },
+  { id: "catalog", label: "Por catálogo" },
+];
+
+// ─── Tarjeta de producto con animación de entrada + badge Nuevo ──────────────
 
 function ProductCard({
   p,
   index,
   isFav,
+  isNew,
   onOpen,
   onToggleFav,
 }: {
   p: Product;
   index: number;
   isFav: boolean;
+  isNew: boolean;
   onOpen: (p: Product) => void;
   onToggleFav: (id: string) => void;
 }) {
@@ -117,8 +135,14 @@ function ProductCard({
         />
       </button>
 
-      {/* Categoría + variantes */}
+      {/* Categoría + variantes + nuevo */}
       <div className="absolute left-2 top-2 flex flex-col gap-1">
+        {isNew && (
+          <span className="flex items-center gap-0.5 rounded-sm bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white backdrop-blur">
+            <Sparkles className="h-2.5 w-2.5" />
+            Nuevo
+          </span>
+        )}
         <span className="rounded-sm bg-background/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur">
           {CATEGORIES.find((x) => x.id === p.category)?.label.split(" ")[0]}
         </span>
@@ -148,12 +172,15 @@ function Index() {
 function IndexContent() {
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState<Category>("all");
+  const [catalogFilter, setCatalogFilter] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<SortMode>("default");
   const [dark, setDark] = useState(true);
   const [favs, setFavs] = useState<string[]>([]);
   const [showFavs, setShowFavs] = useState(false);
   const [selected, setSelected] = useState<Product | null>(null);
   const [page, setPage] = useState(1);
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
+  const [lastSeenIds, setLastSeenIds] = useState<Set<string> | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const fetchProducts = useServerFn(fetchAllProducts);
@@ -174,6 +201,17 @@ function IndexContent() {
     const savedRecent = localStorage.getItem(RECENTLY_VIEWED_KEY);
     if (savedRecent) setRecentlyViewed(JSON.parse(savedRecent));
 
+    const savedLastSeen = localStorage.getItem(LAST_SEEN_IDS_KEY);
+    if (savedLastSeen) {
+      try {
+        setLastSeenIds(new Set(JSON.parse(savedLastSeen)));
+      } catch {
+        setLastSeenIds(new Set());
+      }
+    } else {
+      setLastSeenIds(new Set());
+    }
+
     const theme = localStorage.getItem("vault-theme");
     if (theme === "light") {
       setDark(false);
@@ -189,20 +227,29 @@ function IndexContent() {
     localStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(recentlyViewed));
   }, [recentlyViewed]);
 
+  // Tras cargar productos, actualizar el set de "ya vistos" para la próxima
+  // visita (con un pequeño delay para no penalizar el badge "Nuevo" de esta sesión)
+  useEffect(() => {
+    if (!data?.products?.length) return;
+    const timer = setTimeout(() => {
+      const ids = data.products.map((p) => p.id);
+      localStorage.setItem(LAST_SEEN_IDS_KEY, JSON.stringify(ids));
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [data?.products]);
+
   // ── Reset página al cambiar filtros ─────────────────────────────────────────
   useEffect(() => {
     setPage(1);
-  }, [query, cat, showFavs]);
+  }, [query, cat, showFavs, catalogFilter, sortMode]);
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Cmd/Ctrl+K → foco en búsqueda
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         searchRef.current?.focus();
       }
-      // Escape → limpiar búsqueda si no hay modal abierto
       if (e.key === "Escape" && !selected && query) {
         setQuery("");
       }
@@ -234,18 +281,39 @@ function IndexContent() {
     });
   }, []);
 
-  // ── Filtrado y paginación ───────────────────────────────────────────────────
+  // ── Filtrado, orden y paginación ────────────────────────────────────────────
   const products = data?.products ?? [];
 
   const filtered = useMemo(() => {
     return products.filter((p) => {
       if (showFavs && !favs.includes(p.id)) return false;
       if (cat !== "all" && p.category !== cat) return false;
+      if (catalogFilter && p.catalog !== catalogFilter) return false;
       return productMatchesQuery(p, query);
     });
-  }, [products, query, cat, favs, showFavs]);
+  }, [products, query, cat, catalogFilter, favs, showFavs]);
 
-  const paginated = useMemo(() => filtered.slice(0, page * PAGE_SIZE), [filtered, page]);
+  const sorted = useMemo(() => {
+    if (sortMode === "default") return filtered;
+    const copy = [...filtered];
+    if (sortMode === "alphabetical") {
+      copy.sort((a, b) => a.title.localeCompare(b.title, "es"));
+    } else if (sortMode === "catalog") {
+      copy.sort((a, b) => a.catalogName.localeCompare(b.catalogName, "es"));
+    } else if (sortMode === "newest") {
+      // "Nuevo" primero (no visto en el scrape anterior), resto mantiene orden original
+      if (lastSeenIds) {
+        copy.sort((a, b) => {
+          const aNew = !lastSeenIds.has(a.id) ? 1 : 0;
+          const bNew = !lastSeenIds.has(b.id) ? 1 : 0;
+          return bNew - aNew;
+        });
+      }
+    }
+    return copy;
+  }, [filtered, sortMode, lastSeenIds]);
+
+  const paginated = useMemo(() => sorted.slice(0, page * PAGE_SIZE), [sorted, page]);
 
   const countByCat = useMemo(() => {
     const map: Record<string, number> = {};
@@ -253,10 +321,21 @@ function IndexContent() {
     return map;
   }, [products]);
 
+  const countByCatalog = useMemo(() => {
+    const map: Record<string, number> = {};
+    products.forEach((p) => (map[p.catalog] = (map[p.catalog] || 0) + 1));
+    return map;
+  }, [products]);
+
   const totalModels = products.length;
   const totalVariants = products.reduce((acc, p) => acc + (p.variants?.length ?? 0), 0);
 
-  const hasActiveFilters = query || cat !== "all" || showFavs;
+  const hasActiveFilters = query || cat !== "all" || showFavs || catalogFilter;
+
+  const isProductNew = useCallback(
+    (id: string) => (lastSeenIds ? !lastSeenIds.has(id) : false),
+    [lastSeenIds],
+  );
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -340,10 +419,10 @@ function IndexContent() {
         </div>
       </section>
 
-      {/* Categories filter */}
+      {/* Categories + catalog filter + sort */}
       <section className="border-b border-border bg-card/30">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => { setCat("all"); setShowFavs(false); }}
               className={`rounded-sm border px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
@@ -375,7 +454,7 @@ function IndexContent() {
             ))}
             <button
               onClick={() => setShowFavs((v) => !v)}
-              className={`ml-auto flex items-center gap-1.5 rounded-sm border px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+              className={`flex items-center gap-1.5 rounded-sm border px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
                 showFavs
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border bg-card hover:border-primary/50"
@@ -385,6 +464,56 @@ function IndexContent() {
               Favoritos{" "}
               {favs.length > 0 && <span className="opacity-70">{favs.length}</span>}
             </button>
+
+            {/* Selector de orden */}
+            <div className="ml-auto flex items-center gap-2">
+              <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+                <SelectTrigger className="h-9 w-[160px] border-border bg-card text-xs font-bold uppercase tracking-wider">
+                  <ArrowUpDown className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.id} value={opt.id} className="text-xs">
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Filtro por catálogo específico */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Catálogo:
+            </span>
+            <button
+              onClick={() => setCatalogFilter(null)}
+              className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition ${
+                !catalogFilter
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:border-primary/50"
+              }`}
+            >
+              Todos
+            </button>
+            {CATALOGS.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setCatalogFilter(catalogFilter === c.id ? null : c.id)}
+                className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition ${
+                  catalogFilter === c.id
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/50"
+                }`}
+              >
+                {c.name}{" "}
+                {countByCatalog[c.id] > 0 && (
+                  <span className="opacity-60">{countByCatalog[c.id]}</span>
+                )}
+              </button>
+            ))}
           </div>
         </div>
       </section>
@@ -427,7 +556,7 @@ function IndexContent() {
             <h2 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
               {isLoading
                 ? "Cargando…"
-                : `${filtered.length} ${filtered.length === 1 ? "modelo" : "modelos"}`}
+                : `${sorted.length} ${sorted.length === 1 ? "modelo" : "modelos"}`}
             </h2>
           </div>
           {data?.fetchedAt && (
@@ -459,7 +588,7 @@ function IndexContent() {
               Reintentar
             </Button>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           /* ── Empty state mejorado ── */
           <div className="flex flex-col items-center gap-4 py-20 text-center">
             <div className="text-5xl">🔍</div>
@@ -473,29 +602,22 @@ function IndexContent() {
             </p>
             <div className="flex flex-wrap justify-center gap-2 mt-2">
               {query && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setQuery("")}
-                >
+                <Button variant="outline" size="sm" onClick={() => setQuery("")}>
                   Limpiar búsqueda
                 </Button>
               )}
               {cat !== "all" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCat("all")}
-                >
+                <Button variant="outline" size="sm" onClick={() => setCat("all")}>
                   Ver en todas las categorías
                 </Button>
               )}
+              {catalogFilter && (
+                <Button variant="outline" size="sm" onClick={() => setCatalogFilter(null)}>
+                  Quitar filtro de catálogo
+                </Button>
+              )}
               {showFavs && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowFavs(false)}
-                >
+                <Button variant="outline" size="sm" onClick={() => setShowFavs(false)}>
                   Ver todos los productos
                 </Button>
               )}
@@ -510,6 +632,7 @@ function IndexContent() {
                   p={p}
                   index={i}
                   isFav={favs.includes(p.id)}
+                  isNew={isProductNew(p.id)}
                   onOpen={openProduct}
                   onToggleFav={toggleFav}
                 />
@@ -517,7 +640,7 @@ function IndexContent() {
             </div>
 
             {/* Cargar más */}
-            {paginated.length < filtered.length && (
+            {paginated.length < sorted.length && (
               <div className="mt-10 flex flex-col items-center gap-2">
                 <Button
                   variant="outline"
@@ -527,11 +650,11 @@ function IndexContent() {
                 >
                   Cargar más{" "}
                   <span className="ml-1.5 opacity-60">
-                    ({filtered.length - paginated.length} restantes)
+                    ({sorted.length - paginated.length} restantes)
                   </span>
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  Mostrando {paginated.length} de {filtered.length}
+                  Mostrando {paginated.length} de {sorted.length}
                 </p>
               </div>
             )}
